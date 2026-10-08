@@ -1,6 +1,7 @@
 import React, { useState } from "react"
 import { Lock, ArrowRight, AlertCircle, KeyRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import logo from "@/assets/logo.png"
 
 export default function AdminPasswordGate({ onAuthenticated }) {
   const [password, setPassword] = useState("")
@@ -41,7 +42,7 @@ export default function AdminPasswordGate({ onAuthenticated }) {
           <div className="flex flex-col items-center text-center">
             <div className="h-16 flex items-center justify-center mb-3">
               <img
-                src="/logo.png"
+                src={logo}
                 alt="BJR Group Logo"
                 className="h-14 w-auto object-contain"
               />

@@ -1,6 +1,7 @@
 import jsPDF from "jspdf"
 import autoTable from "jspdf-autotable"
 import { formatINR } from "./utils"
+import logo from "@/assets/logo.png"
 
 /**
  * Loads an image URL and converts it to a base64 Data URL.
@@ -43,7 +44,7 @@ export async function exportExpensesToPDF(expenses, clientName = "Client Ledger"
   // Try loading and embedding BJR logo
   let hasImageLogo = false
   try {
-    const logoBase64 = await getBase64ImageFromUrl("/logo.png")
+    const logoBase64 = await getBase64ImageFromUrl(logo)
     if (logoBase64) {
       // BJR Logo aspect ratio is exactly 3:1 (2172 x 724)
       const logoWidth = 45

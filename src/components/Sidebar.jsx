@@ -8,6 +8,7 @@ import {
   X
 } from "lucide-react"
 import { formatINR, formatTransactionCount } from "@/lib/utils"
+import logo from "@/assets/logo.png"
 
 export default function Sidebar({
   totalSpent = 0,
@@ -33,7 +34,7 @@ export default function Sidebar({
             <div className="flex items-center justify-between">
               <Link to="/" onClick={onClose} className="block focus:outline-none">
                 <img
-                  src="/logo.png"
+                  src={logo}
                   alt="BJR Group"
                   className="w-48 h-auto object-contain block"
                 />

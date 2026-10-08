@@ -13,6 +13,7 @@ import {
   Sparkles
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import logo from "@/assets/logo.png"
 
 export default function LandingPage() {
   const steps = [
@@ -56,7 +57,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-3">
             <Link to="/">
               <img
-                src="/logo.png"
+                src={logo}
                 alt="BJR Group"
                 className="h-10 w-auto object-contain"
               />
@@ -81,7 +82,7 @@ export default function LandingPage() {
           <div className="flex justify-center mb-6">
             <div className="p-4 bg-white rounded-2xl border border-gray-border shadow-xs">
               <img
-                src="/logo.png"
+                src={logo}
                 alt="BJR Group Logo"
                 className="h-16 w-auto object-contain"
               />
@@ -221,7 +222,7 @@ export default function LandingPage() {
       <footer className="bg-white border-t border-gray-border py-8">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-text">
           <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="BJR Group" className="h-6 w-auto object-contain" />
+            <img src={logo} alt="BJR Group" className="h-6 w-auto object-contain" />
             <span>© {new Date().getFullYear()} BJR Group. All rights reserved.</span>
           </div>
           <div className="flex items-center gap-6 font-semibold text-navy">

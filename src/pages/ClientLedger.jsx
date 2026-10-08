@@ -8,6 +8,7 @@ import { exportExpensesToPDF } from "@/lib/pdfExport"
 import { formatINR, formatTransactionCount } from "@/lib/utils"
 import { AlertCircle, Download, Search, TrendingUp } from "lucide-react"
 import { Select } from "@/components/ui/input"
+import logo from "@/assets/logo.png"
 
 const VALID_CLIENT_SLUG = "x7k9m2p4q8v3"
 
@@ -134,7 +135,7 @@ export default function ClientLedger() {
       <header className="flex items-center justify-center w-full bg-white border-b border-gray-200 h-24 md:h-40 px-4 m-0 z-30 shrink-0">
         <Link to="/" className="flex items-center justify-center">
           <img
-            src="/logo.png"
+            src={logo}
             alt="BJR Group"
             className="h-24 md:h-32 w-auto object-contain block"
           />
