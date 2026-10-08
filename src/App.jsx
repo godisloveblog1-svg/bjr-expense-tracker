@@ -6,7 +6,7 @@ import ClientLedger from "@/pages/ClientLedger"
 
 export default function App() {
   return (
-    <BrowserRouter basename="/bjr-expense-tracker">
+    <BrowserRouter>
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/admin" element={<AdminDashboard />} />
