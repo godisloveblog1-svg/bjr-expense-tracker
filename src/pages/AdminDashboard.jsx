@@ -299,14 +299,27 @@ export default function AdminDashboard() {
 
     if (isSupabaseConfigured && supabase) {
       try {
-        const { error } = await supabase.from("expenses").delete().eq("id", id)
+        const { data, error } = await supabase
+          .from("expenses")
+          .delete()
+          .eq("id", id)
+          .select()
+
         if (error) {
           alert(`Error deleting record: ${error.message}`)
           return
         }
+
+        if (!data || data.length === 0) {
+          alert("Could not delete from database. Please ensure your Supabase SQL policy allows DELETE:\n\nCREATE POLICY \"Allow public delete expenses\" ON expenses FOR DELETE USING (true);")
+          return
+        }
+
         setExpenses((prev) => prev.filter((item) => item.id !== id))
+        setStatusMessage({ type: "success", text: "Expense deleted successfully." })
       } catch (err) {
         console.error(err)
+        alert(`Failed to delete record: ${err.message}`)
       }
     } else {
       const updated = expenses.filter((item) => item.id !== id)
