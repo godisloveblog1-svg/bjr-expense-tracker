@@ -7,6 +7,7 @@ import { MOCK_EXPENSES } from "@/data/mockExpenses"
 import { supabase, isSupabaseConfigured } from "@/supabaseClient"
 import { fetchCategories, addCategory, deleteCategory } from "@/lib/categoriesService"
 import { exportExpensesToPDF } from "@/lib/pdfExport"
+import { backupTransactionToGoogle } from "@/lib/googleBackupService"
 import { formatINR } from "@/lib/utils"
 import {
   PlusCircle,
@@ -249,6 +250,20 @@ export default function AdminDashboard() {
         if (insertError) {
           throw new Error(`Database insert error: ${insertError.message}`)
         }
+
+        const insertedRecord = insertedData?.[0] || {
+          date,
+          description,
+          category,
+          amount: parseFloat(amount),
+          notes,
+          bill_url: uploadedBillUrl
+        }
+
+        // Automatic Google Drive / Sheets backup in background
+        backupTransactionToGoogle(insertedRecord).catch((backupErr) => {
+          console.warn("Background Google backup error:", backupErr)
+        })
 
         setStatusMessage({ type: "success", text: "Expense recorded & bill stored successfully in Supabase." })
         await fetchExpenses()
