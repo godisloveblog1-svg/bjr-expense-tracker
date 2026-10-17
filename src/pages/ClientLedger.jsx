@@ -5,6 +5,7 @@ import ExpenseTable from "@/components/ExpenseTable"
 import { supabase, isSupabaseConfigured } from "@/supabaseClient"
 import { fetchCategories } from "@/lib/categoriesService"
 import { fetchFunds } from "@/lib/fundsService"
+import { fetchInvestments } from "@/lib/investmentsService"
 import { exportExpensesToPDF } from "@/lib/pdfExport"
 import { formatINR, formatTransactionCount } from "@/lib/utils"
 import { AlertCircle, Download, Search, TrendingUp, Wallet } from "lucide-react"
@@ -17,6 +18,7 @@ export default function ClientLedger() {
   const { clientSlug } = useParams()
   const [expenses, setExpenses] = useState([])
   const [funds, setFunds] = useState([])
+  const [investments, setInvestments] = useState([])
   const [categoriesList, setCategoriesList] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
@@ -91,6 +93,17 @@ export default function ClientLedger() {
       }
     }
     loadFunds()
+
+    async function loadInvestments() {
+      try {
+        const data = await fetchInvestments()
+        setInvestments(data || [])
+      } catch (err) {
+        console.warn("Failed to load investments:", err)
+        setInvestments([])
+      }
+    }
+    loadInvestments()
   }, [clientSlug])
 
   const filteredExpenses = expenses.filter((item) => {
@@ -120,6 +133,9 @@ export default function ClientLedger() {
   const totalFunds = funds.reduce((sum, f) => sum + (Number(f.amount) || 0), 0)
   const balance = totalFunds - totalSpent
   const isLowBalance = balance <= 0
+
+  // Investment math: capital in the startup (separate from spendable balance)
+  const totalInvested = investments.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0)
 
   const handleDownloadPDF = () => {
     exportExpensesToPDF(filteredExpenses, clientSlug || "BJR-Client", { totalFunds, balance })
@@ -226,8 +242,8 @@ export default function ClientLedger() {
               </span>
             </div>
 
-            {/* Funds vs Spent sub-stats */}
-            <div className="grid grid-cols-2 gap-3 mt-3 sm:mt-4">
+            {/* Funds vs Spent vs Invested sub-stats */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-3 sm:mt-4">
               <div className="rounded-md bg-white/5 border border-white/10 px-3 py-2">
                 <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-300 block">
                   Total Funds
@@ -242,6 +258,14 @@ export default function ClientLedger() {
                 </span>
                 <span className="text-base sm:text-lg font-bold font-mono tabular-nums text-white block mt-0.5">
                   {formatINR(totalSpent)}
+                </span>
+              </div>
+              <div className="rounded-md bg-white/5 border border-white/10 px-3 py-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-[#D4AF37] block">
+                  Total Invested
+                </span>
+                <span className="text-base sm:text-lg font-bold font-mono tabular-nums text-[#D4AF37] block mt-0.5">
+                  {formatINR(totalInvested)}
                 </span>
               </div>
             </div>

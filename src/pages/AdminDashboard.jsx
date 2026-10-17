@@ -9,6 +9,13 @@ import { fetchCategories, addCategory, deleteCategory } from "@/lib/categoriesSe
 import { exportExpensesToPDF } from "@/lib/pdfExport"
 import { backupTransactionToGoogle } from "@/lib/googleBackupService"
 import { fetchFunds, addFund, updateFund, deleteFund as deleteFundEntry, uploadFundBill } from "@/lib/fundsService"
+import {
+  fetchInvestments,
+  addInvestment,
+  updateInvestment,
+  deleteInvestment as deleteInvestmentEntry,
+  uploadInvestmentBill
+} from "@/lib/investmentsService"
 import { formatINR } from "@/lib/utils"
 import {
   PlusCircle,
@@ -20,6 +27,7 @@ import {
   AlertCircle,
   Wallet,
   Pencil,
+  Rocket,
   TrendingDown
 } from "lucide-react"
 import { Input, Label, Textarea, Select } from "@/components/ui/input"
@@ -94,6 +102,33 @@ export default function AdminDashboard() {
   const [editFundNote, setEditFundNote] = useState("")
   const [editFundFile, setEditFundFile] = useState(null)
   const [savingFundEdit, setSavingFundEdit] = useState(false)
+
+  // Investments state
+  const [investments, setInvestments] = useState([])
+  const [investmentsLoading, setInvestmentsLoading] = useState(true)
+  const [investmentSubmitting, setInvestmentSubmitting] = useState(false)
+  const [investmentToDelete, setInvestmentToDelete] = useState(null)
+
+  // Investment Form State
+  const [investmentDate, setInvestmentDate] = useState(() => {
+    const today = new Date()
+    return today.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric"
+    })
+  })
+  const [investmentAmount, setInvestmentAmount] = useState("")
+  const [investmentNote, setInvestmentNote] = useState("")
+  const [investmentFile, setInvestmentFile] = useState(null)
+
+  // Edit Investment Modal State
+  const [editingInvestment, setEditingInvestment] = useState(null)
+  const [editInvestmentDate, setEditInvestmentDate] = useState("")
+  const [editInvestmentAmount, setEditInvestmentAmount] = useState("")
+  const [editInvestmentNote, setEditInvestmentNote] = useState("")
+  const [editInvestmentFile, setEditInvestmentFile] = useState(null)
+  const [savingInvestmentEdit, setSavingInvestmentEdit] = useState(false)
 
   // Category Modal State
   const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false)
@@ -184,11 +219,25 @@ export default function AdminDashboard() {
     }
   }
 
+  // Fetch investments
+  const loadInvestments = async () => {
+    setInvestmentsLoading(true)
+    try {
+      const data = await fetchInvestments()
+      setInvestments(data || [])
+    } catch (err) {
+      console.warn("Failed to load investments:", err)
+    } finally {
+      setInvestmentsLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (isAuthenticated) {
       fetchExpenses()
       loadCategories()
       loadFunds()
+      loadInvestments()
     }
   }, [isAuthenticated])
 
@@ -605,6 +654,127 @@ export default function AdminDashboard() {
     }
   }
 
+  // ---- Investments (money poured into the startup by the investor) ----
+  const handleInvestmentSubmit = async (e) => {
+    e.preventDefault()
+    if (!investmentAmount) {
+      setStatusMessage({ type: "error", text: "Please enter the invested amount." })
+      return
+    }
+
+    const numAmount = parseFloat(investmentAmount)
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setStatusMessage({ type: "error", text: "Amount must be a positive number greater than 0." })
+      return
+    }
+
+    setInvestmentSubmitting(true)
+    setStatusMessage(null)
+
+    try {
+      let uploadedBillUrl = null
+      if (investmentFile) {
+        uploadedBillUrl = await uploadInvestmentBill(investmentFile)
+      }
+
+      const newInvestment = await addInvestment({
+        date: investmentDate,
+        amount: numAmount,
+        note: investmentNote,
+        bill_url: uploadedBillUrl
+      })
+      setInvestments((prev) => [newInvestment, ...prev])
+
+      // Background Google backup (tagged as investment so the sheet can route it)
+      backupTransactionToGoogle({ ...newInvestment, type: "investment" }).catch((backupErr) => {
+        console.warn("Background Google backup error (investment):", backupErr)
+      })
+
+      setStatusMessage({
+        type: "success",
+        text: `Investment of ${formatINR(numAmount)} recorded successfully.${uploadedBillUrl ? " Receipt stored." : ""}`
+      })
+      setInvestmentAmount("")
+      setInvestmentNote("")
+      setInvestmentFile(null)
+      const invFileInput = document.getElementById("investment-bill-upload")
+      if (invFileInput) invFileInput.value = ""
+    } catch (err) {
+      setStatusMessage({ type: "error", text: err.message || "Failed to record investment." })
+    } finally {
+      setInvestmentSubmitting(false)
+    }
+  }
+
+  const openEditInvestment = (investment) => {
+    setEditingInvestment(investment)
+    setEditInvestmentDate(investment.date || "")
+    setEditInvestmentAmount(String(investment.amount ?? ""))
+    setEditInvestmentNote(investment.note || "")
+    setEditInvestmentFile(null)
+    setStatusMessage(null)
+  }
+
+  const handleEditInvestmentSave = async (e) => {
+    e.preventDefault()
+    if (!editingInvestment) return
+    if (!editInvestmentAmount) {
+      setStatusMessage({ type: "error", text: "Amount is required." })
+      return
+    }
+
+    const numAmount = parseFloat(editInvestmentAmount)
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setStatusMessage({ type: "error", text: "Amount must be a positive number greater than 0." })
+      return
+    }
+
+    setSavingInvestmentEdit(true)
+    try {
+      const updates = {
+        date: editInvestmentDate,
+        amount: numAmount,
+        note: editInvestmentNote
+      }
+
+      // Attach or replace the receipt
+      if (editInvestmentFile) {
+        updates.bill_url = await uploadInvestmentBill(editInvestmentFile)
+        const invFileInput = document.getElementById("edit-investment-bill-upload")
+        if (invFileInput) invFileInput.value = ""
+      }
+
+      const updatedRow = await updateInvestment(editingInvestment.id, updates)
+
+      backupTransactionToGoogle({ ...(updatedRow || { ...editingInvestment, ...updates }), type: "investment_update" }).catch((backupErr) => {
+        console.warn("Background Google backup error (investment update):", backupErr)
+      })
+
+      setInvestments((prev) =>
+        prev.map((inv) => (inv.id === editingInvestment.id ? { ...inv, ...(updatedRow || updates) } : inv))
+      )
+      setStatusMessage({ type: "success", text: "Investment updated successfully." })
+      setEditingInvestment(null)
+    } catch (err) {
+      setStatusMessage({ type: "error", text: err.message || "Failed to update investment." })
+    } finally {
+      setSavingInvestmentEdit(false)
+    }
+  }
+
+  const handleConfirmDeleteInvestment = async () => {
+    if (!investmentToDelete) return
+    try {
+      await deleteInvestmentEntry(investmentToDelete.id)
+      setInvestments((prev) => prev.filter((inv) => inv.id !== investmentToDelete.id))
+      setStatusMessage({ type: "success", text: "Investment entry deleted successfully." })
+    } catch (err) {
+      setStatusMessage({ type: "error", text: err.message || "Failed to delete investment entry." })
+    } finally {
+      setInvestmentToDelete(null)
+    }
+  }
+
   // Filter
   const filteredExpenses = expenses.filter((item) => {
     const matchesCategory =
@@ -631,6 +801,9 @@ export default function AdminDashboard() {
   const totalFunds = funds.reduce((sum, f) => sum + (Number(f.amount) || 0), 0)
   const balance = totalFunds - totalSpent
   const isLowBalance = balance <= 0
+
+  // Investment math: capital poured into the startup (separate from spendable balance)
+  const totalInvested = investments.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0)
 
   const handleDownloadPDF = () => {
     exportExpensesToPDF(filteredExpenses, "BJR Admin Audit", { totalFunds, balance })
@@ -700,7 +873,7 @@ export default function AdminDashboard() {
           )}
 
           {/* TOP BALANCE STRIP (visible on all tabs) */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
               <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
                 <Wallet className="w-3.5 h-3.5" />
@@ -725,6 +898,15 @@ export default function AdminDashboard() {
               </div>
               <span className={`block mt-1 text-xl font-bold font-mono tabular-nums ${isLowBalance ? "text-red-600" : "text-emerald-700"}`}>
                 {formatINR(balance)}
+              </span>
+            </div>
+            <div className="rounded-lg border border-[#D4AF37]/50 bg-gradient-to-br from-[#0B2149] to-[#123168] px-4 py-3 text-white">
+              <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#D4AF37]">
+                <Rocket className="w-3.5 h-3.5 text-[#D4AF37]" />
+                <span>Total Invested</span>
+              </div>
+              <span className="block mt-1 text-xl font-bold font-mono tabular-nums text-white">
+                {formatINR(totalInvested)}
               </span>
             </div>
           </div>
@@ -754,6 +936,18 @@ export default function AdminDashboard() {
             >
               <Wallet className="w-3.5 h-3.5" />
               <span>Funds Received ({funds.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("investments")}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors cursor-pointer ${
+                activeTab === "investments"
+                  ? "bg-navy text-white"
+                  : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
+              }`}
+            >
+              <Rocket className="w-3.5 h-3.5" />
+              <span>Investments ({investments.length})</span>
             </button>
             <button
               type="button"
@@ -832,6 +1026,162 @@ export default function AdminDashboard() {
                 )}
               </div>
             </div>
+          ) : activeTab === "investments" ? (
+            /* 4. ADMIN DASHBOARD — INVESTMENTS SECTION */
+            <>
+              {/* Add Investment Form Card */}
+              <div className="rounded-lg border border-gray-200 bg-white">
+                <div className="border-b border-gray-200 px-6 py-4">
+                  <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">
+                    Record Startup Investment
+                  </h2>
+                  <p className="text-[13px] text-gray-500 mt-0.5">
+                    Money your investor pours into the startup. Tracked separately from the spendable balance.
+                  </p>
+                </div>
+
+                <div className="p-6">
+                  <form onSubmit={handleInvestmentSubmit} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="investment-date-picker-btn" className="text-[12px] font-medium text-gray-700">Date</Label>
+                        <DatePicker
+                          id="investment-date-picker-btn"
+                          value={investmentDate}
+                          onChange={(newDate) => setInvestmentDate(newDate)}
+                          placeholder="Pick a date"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="investment-amount" className="text-[12px] font-medium text-gray-700">Amount (₹)</Label>
+                        <Input
+                          id="investment-amount"
+                          type="number"
+                          step="0.01"
+                          min="1"
+                          placeholder="e.g. 500000"
+                          value={investmentAmount}
+                          onChange={(e) => setInvestmentAmount(e.target.value)}
+                          required
+                          className="h-9 text-[13px] rounded-md border-gray-200 focus:border-navy font-mono"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="investment-bill-upload" className="text-[12px] font-medium text-gray-700">Receipt / Agreement</Label>
+                        <input
+                          id="investment-bill-upload"
+                          type="file"
+                          accept="image/*,application/pdf"
+                          onChange={(e) => setInvestmentFile(e.target.files?.[0] || null)}
+                          className="w-full text-[12px] text-gray-500 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border file:border-gray-200 file:text-[12px] file:font-medium file:bg-gray-50 hover:file:bg-gray-100 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="investment-note" className="text-[12px] font-medium text-gray-700">Note (Optional)</Label>
+                      <Input
+                        id="investment-note"
+                        type="text"
+                        placeholder="e.g. Second seed tranche for product development"
+                        value={investmentNote}
+                        onChange={(e) => setInvestmentNote(e.target.value)}
+                        className="h-9 text-[13px] rounded-md border-gray-200 focus:border-navy"
+                      />
+                    </div>
+
+                    <div className="pt-2 flex justify-end">
+                      <Button
+                        type="submit"
+                        disabled={investmentSubmitting}
+                        className="min-w-[140px] text-[13px] font-medium bg-navy hover:bg-navy-dark text-white rounded-md h-9"
+                      >
+                        {investmentSubmitting ? "Saving..." : "Record Investment"}
+                      </Button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+
+              {/* Investments Log */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-[15px] font-semibold text-gray-900 tracking-tight">Investment Log</h3>
+                    <p className="text-[13px] text-gray-500">
+                      Capital rounds received, newest first • Total: {formatINR(totalInvested)}
+                    </p>
+                  </div>
+                  <div className="text-[12px] font-mono text-gray-500">
+                    {investments.length} entries
+                  </div>
+                </div>
+
+                {investmentsLoading ? (
+                  <div className="rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-500 text-[13px]">
+                    Fetching investment log...
+                  </div>
+                ) : investments.length === 0 ? (
+                  <div className="rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-500 text-[13px]">
+                    No investments recorded yet. Use the form above when your investor puts money in.
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+                    {investments.map((investment) => (
+                      <div
+                        key={investment.id}
+                        className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-[13px] font-semibold text-gray-900">
+                            {investment.date || "No date"}
+                          </div>
+                          {investment.note ? (
+                            <div className="text-[12px] text-gray-500 truncate">{investment.note}</div>
+                          ) : null}
+                        </div>
+
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="text-[13px] font-bold font-mono tabular-nums text-[#B8860B]">
+                            +{formatINR(investment.amount)}
+                          </span>
+                          {investment.bill_url ? (
+                            <a
+                              href={investment.bill_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[11px] font-semibold text-navy hover:underline whitespace-nowrap"
+                            >
+                              VIEW BILL
+                            </a>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => openEditInvestment(investment)}
+                            className="p-1 text-gray-400 hover:text-navy transition-colors cursor-pointer rounded"
+                            title="Edit investment / attach receipt"
+                            aria-label="Edit investment"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setInvestmentToDelete(investment)}
+                            className="p-1 text-gray-400 hover:text-red-600 transition-colors cursor-pointer rounded"
+                            title="Delete investment"
+                            aria-label="Delete investment"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
           ) : activeTab === "funds" ? (
             /* 3. ADMIN DASHBOARD — FUNDS RECEIVED SECTION */
             <>
@@ -1539,6 +1889,135 @@ export default function AdminDashboard() {
               </Button>
             </DialogFooter>
           </form>
+        </div>
+      </Dialog>
+      {/* MODAL 6: EDIT INVESTMENT DIALOG */}
+      <Dialog open={Boolean(editingInvestment)} onOpenChange={() => setEditingInvestment(null)}>
+        <div className="relative">
+          <DialogClose onClick={() => setEditingInvestment(null)} />
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base text-navy font-bold">
+              <Pencil className="w-4 h-4" />
+              Edit Investment
+            </DialogTitle>
+            <DialogDescription className="text-xs text-gray-500">
+              Update details, or attach the receipt now / replace the current one.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleEditInvestmentSave} className="space-y-4 mt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-investment-date" className="text-[12px] font-medium text-gray-700">Date</Label>
+                <DatePicker
+                  id="edit-investment-date"
+                  value={editInvestmentDate}
+                  onChange={(newDate) => setEditInvestmentDate(newDate)}
+                  placeholder="Pick a date"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-investment-amount" className="text-[12px] font-medium text-gray-700">Amount (₹)</Label>
+                <Input
+                  id="edit-investment-amount"
+                  type="number"
+                  step="0.01"
+                  min="1"
+                  value={editInvestmentAmount}
+                  onChange={(e) => setEditInvestmentAmount(e.target.value)}
+                  required
+                  className="h-9 text-[13px] rounded-md border-gray-200 focus:border-navy font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-investment-bill-upload" className="text-[12px] font-medium text-gray-700">Receipt / Agreement</Label>
+              {editingInvestment?.bill_url && !editInvestmentFile ? (
+                <a
+                  href={editingInvestment.bill_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-[11px] font-semibold text-navy hover:underline"
+                >
+                  VIEW CURRENT BILL ↗
+                </a>
+              ) : null}
+              <input
+                id="edit-investment-bill-upload"
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={(e) => setEditInvestmentFile(e.target.files?.[0] || null)}
+                className="w-full text-[12px] text-gray-500 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border file:border-gray-200 file:text-[12px] file:font-medium file:bg-gray-50 hover:file:bg-gray-100 cursor-pointer"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-investment-note" className="text-[12px] font-medium text-gray-700">Note (Optional)</Label>
+              <Input
+                id="edit-investment-note"
+                type="text"
+                value={editInvestmentNote}
+                onChange={(e) => setEditInvestmentNote(e.target.value)}
+                className="h-9 text-[13px] rounded-md border-gray-200 focus:border-navy"
+              />
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setEditingInvestment(null)}
+                className="text-xs text-gray-600 hover:bg-gray-100"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={savingInvestmentEdit}
+                className="text-xs font-semibold bg-navy hover:bg-navy-dark text-white"
+              >
+                {savingInvestmentEdit ? "Saving..." : "Save Changes"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </div>
+      </Dialog>
+
+      {/* MODAL 7: CONFIRM DELETE INVESTMENT DIALOG */}
+      <Dialog open={Boolean(investmentToDelete)} onOpenChange={() => setInvestmentToDelete(null)}>
+        <div className="relative">
+          <DialogClose onClick={() => setInvestmentToDelete(null)} />
+          <DialogHeader>
+            <div className="w-10 h-10 rounded-full bg-red-50 text-red-600 flex items-center justify-center mb-2 mx-auto sm:mx-0">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            <DialogTitle className="text-base text-gray-900 font-bold">
+              Delete Investment Entry?
+            </DialogTitle>
+            <DialogDescription className="text-xs text-gray-500 leading-relaxed">
+              This will remove {investmentToDelete && Number(investmentToDelete.amount) ? formatINR(investmentToDelete.amount) : "this entry"} from the investment log and the Total Invested stat will be recalculated.
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter className="mt-5">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setInvestmentToDelete(null)}
+              className="text-xs text-gray-600 hover:bg-gray-100"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirmDeleteInvestment}
+              className="text-xs font-semibold bg-red-600 hover:bg-red-700 text-white"
+            >
+              Delete Entry
+            </Button>
+          </DialogFooter>
         </div>
       </Dialog>
     </div>
