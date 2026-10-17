@@ -24,7 +24,7 @@ async function getBase64ImageFromUrl(imageUrl) {
 }
 
 export async function exportExpensesToPDF(expenses, clientName = "Client Ledger", summary = {}) {
-  const { totalFunds = null, balance = null } = summary
+  const { totalFunds = null, balance = null, totalInvested = null } = summary
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
@@ -99,8 +99,8 @@ export async function exportExpensesToPDF(expenses, clientName = "Client Ledger"
   const totalAmount = expenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
   const totalTransactions = expenses.length
 
-  // Summary box (taller when balance info is included)
-  const boxH = totalFunds !== null ? 26 : 18
+  // Summary box (taller when balance and invested info included)
+  const boxH = totalFunds !== null ? (totalInvested !== null ? 34 : 26) : 18
   const summaryBoxY = separatorY + 4
   doc.setFillColor(...lightGrayRGB)
   doc.setDrawColor(...borderGrayRGB)
@@ -133,6 +133,18 @@ export async function exportExpensesToPDF(expenses, clientName = "Client Ledger"
     doc.text("Available Balance Left:", 100, summaryBoxY + 20)
     doc.setFont("helvetica", "bold")
     doc.text(`${formatINR(balance ?? 0)}`, 148, summaryBoxY + 20)
+
+    // Total Invested row: every expense auto-counts, plus directly-uploaded investments
+    if (totalInvested !== null) {
+      doc.setFont("helvetica", "normal")
+      doc.text("Total Invested (Expenses + Other):", 18, summaryBoxY + 29)
+      doc.setFont("helvetica", "bold")
+      doc.setFontSize(11.5)
+      doc.setTextColor(...goldRGB)
+      doc.text(`${formatINR(totalInvested)}`, 148, summaryBoxY + 29)
+      doc.setFontSize(9.5)
+      doc.setTextColor(...navyRGB)
+    }
   }
 
   // Prepare table data

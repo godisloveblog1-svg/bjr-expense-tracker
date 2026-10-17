@@ -802,11 +802,13 @@ export default function AdminDashboard() {
   const balance = totalFunds - totalSpent
   const isLowBalance = balance <= 0
 
-  // Investment math: capital poured into the startup (separate from spendable balance)
-  const totalInvested = investments.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0)
+  // Investment math: every expense is capital deployed into the project (automatic),
+  // plus directly-uploaded non-expense investments from the admin panel
+  const investmentEntriesTotal = investments.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0)
+  const totalInvested = totalSpent + investmentEntriesTotal
 
   const handleDownloadPDF = () => {
-    exportExpensesToPDF(filteredExpenses, "BJR Admin Audit", { totalFunds, balance })
+    exportExpensesToPDF(filteredExpenses, "BJR Admin Audit", { totalFunds, balance, totalInvested })
   }
 
   const categoryNames = categoriesList.map((c) => c.name)
@@ -1044,7 +1046,7 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="p-6 grid grid-cols-2 lg:grid-cols-4 gap-3">
-                  {/* Total Invested (gold headline) */}
+                  {/* Total Invested (gold headline) — every expense auto-counts, plus direct uploads */}
                   <div className="rounded-lg border border-[#D4AF37]/50 bg-gradient-to-br from-[#0B2149] to-[#123168] px-4 py-3.5 text-white">
                     <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#D4AF37]">
                       <Rocket className="w-3.5 h-3.5" />
@@ -1054,7 +1056,7 @@ export default function AdminDashboard() {
                       {formatINR(totalInvested)}
                     </span>
                     <span className="block mt-0.5 text-[11px] text-gray-300">
-                      Capital in, {investments.length} round{investments.length === 1 ? "" : "s"}
+                      Expenses auto-tracked {formatINR(totalSpent)} + uploads {formatINR(investmentEntriesTotal)}
                     </span>
                   </div>
 
@@ -1181,7 +1183,7 @@ export default function AdminDashboard() {
                   <div>
                     <h3 className="text-[15px] font-semibold text-gray-900 tracking-tight">Investment Log</h3>
                     <p className="text-[13px] text-gray-500">
-                      Capital rounds received, newest first • Total: {formatINR(totalInvested)}
+                      Non-expense investments you upload directly, newest first • Direct total: {formatINR(investmentEntriesTotal)} (expenses auto-count toward Total Invested)
                     </p>
                   </div>
                   <div className="text-[12px] font-mono text-gray-500">

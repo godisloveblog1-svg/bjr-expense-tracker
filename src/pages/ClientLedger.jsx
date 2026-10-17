@@ -134,11 +134,13 @@ export default function ClientLedger() {
   const balance = totalFunds - totalSpent
   const isLowBalance = balance <= 0
 
-  // Investment math: capital in the startup (separate from spendable balance)
-  const totalInvested = investments.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0)
+  // Investment math: every expense auto-counts as capital deployed into the project,
+  // plus directly-uploaded non-expense investments
+  const investmentEntriesTotal = investments.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0)
+  const totalInvested = totalSpent + investmentEntriesTotal
 
   const handleDownloadPDF = () => {
-    exportExpensesToPDF(filteredExpenses, clientSlug || "BJR-Client", { totalFunds, balance })
+    exportExpensesToPDF(filteredExpenses, clientSlug || "BJR-Client", { totalFunds, balance, totalInvested })
   }
 
   if (!isValidSlug) {
