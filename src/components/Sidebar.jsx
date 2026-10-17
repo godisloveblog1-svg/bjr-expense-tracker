@@ -12,6 +12,7 @@ import logo from "@/assets/logo.png"
 
 export default function Sidebar({
   totalSpent = 0,
+  balance = null,
   transactionCount = 0,
   activeFilter = "all",
   onSelectCategory,
@@ -187,6 +188,23 @@ export default function Sidebar({
             {formatTransactionCount(transactionCount)}
           </p>
         </div>
+
+        {/* Available Balance Card */}
+        {balance !== null && (
+          <div className={`border rounded-md p-4 ${balance <= 0 ? "bg-red-50 border-red-200" : "bg-emerald-50 border-emerald-200"}`}>
+            <div className="text-[10px] uppercase tracking-wider text-gray-500 font-semibold mb-1">
+              {balance <= 0 ? "⚠ LOW / NO BALANCE" : "AVAILABLE BALANCE"}
+            </div>
+
+            <div className={`text-xl font-bold tracking-tight font-mono tabular-nums leading-tight ${balance <= 0 ? "text-red-600" : "text-emerald-700"}`}>
+              {formatINR(balance)}
+            </div>
+
+            <p className="text-xs text-gray-400 mt-1">
+              {balance > 0 ? "Funds − Spent" : "Record funds received"}
+            </p>
+          </div>
+        )}
 
         {/* Full-width Navy "Download Audit PDF" Button at the VERY BOTTOM */}
         {onDownloadReport && (

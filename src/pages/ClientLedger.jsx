@@ -4,9 +4,10 @@ import Sidebar from "@/components/Sidebar"
 import ExpenseTable from "@/components/ExpenseTable"
 import { supabase, isSupabaseConfigured } from "@/supabaseClient"
 import { fetchCategories } from "@/lib/categoriesService"
+import { fetchFunds } from "@/lib/fundsService"
 import { exportExpensesToPDF } from "@/lib/pdfExport"
 import { formatINR, formatTransactionCount } from "@/lib/utils"
-import { AlertCircle, Download, Search, TrendingUp } from "lucide-react"
+import { AlertCircle, Download, Search, TrendingUp, Wallet } from "lucide-react"
 import { Select } from "@/components/ui/input"
 import logo from "@/assets/logo.png"
 
@@ -15,6 +16,7 @@ const VALID_CLIENT_SLUG = "x7k9m2p4q8v3"
 export default function ClientLedger() {
   const { clientSlug } = useParams()
   const [expenses, setExpenses] = useState([])
+  const [funds, setFunds] = useState([])
   const [categoriesList, setCategoriesList] = useState([])
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
@@ -78,6 +80,17 @@ export default function ClientLedger() {
     }
 
     fetchExpenses()
+
+    async function loadFunds() {
+      try {
+        const data = await fetchFunds()
+        setFunds(data || [])
+      } catch (err) {
+        console.warn("Failed to load funds:", err)
+        setFunds([])
+      }
+    }
+    loadFunds()
   }, [clientSlug])
 
   const filteredExpenses = expenses.filter((item) => {
@@ -103,8 +116,13 @@ export default function ClientLedger() {
   )
   const totalTransactions = filteredExpenses.length
 
+  // Balance math: money the client gave minus everything spent
+  const totalFunds = funds.reduce((sum, f) => sum + (Number(f.amount) || 0), 0)
+  const balance = totalFunds - totalSpent
+  const isLowBalance = balance <= 0
+
   const handleDownloadPDF = () => {
-    exportExpensesToPDF(filteredExpenses, clientSlug || "BJR-Client")
+    exportExpensesToPDF(filteredExpenses, clientSlug || "BJR-Client", { totalFunds, balance })
   }
 
   if (!isValidSlug) {
@@ -146,6 +164,7 @@ export default function ClientLedger() {
       <div className="flex-1 flex flex-col lg:flex-row min-w-0 w-full">
         <Sidebar
           totalSpent={totalSpent}
+          balance={balance}
           transactionCount={totalTransactions}
           activeFilter={selectedCategory}
           onSelectCategory={setSelectedCategory}
@@ -178,7 +197,7 @@ export default function ClientLedger() {
             </div>
           </div>
 
-          {/* THE "TOTAL SPEND" BOX */}
+          {/* THE BALANCE BOX */}
           <div className="relative overflow-hidden rounded-md border border-[#D4AF37]/60 border-l-4 border-l-[#D4AF37] bg-gradient-to-br from-[#0B2149] via-[#0E2856] to-[#123168] p-4.5 sm:p-6 lg:p-7 text-white shadow-md">
             {/* Ambient decorative glow / pattern */}
             <div className="absolute top-0 right-0 -mr-16 -mt-16 w-56 h-56 bg-[#D4AF37]/5 rounded-full blur-3xl pointer-events-none" />
@@ -186,7 +205,7 @@ export default function ClientLedger() {
             {/* Top row */}
             <div className="flex items-center justify-between mb-2.5 sm:mb-4">
               <span className="text-[11px] font-semibold tracking-wider text-[#D4AF37] uppercase">
-                TOTAL SPENT
+                {isLowBalance ? "⚠ LOW / NO BALANCE" : "BALANCE LEFT"}
               </span>
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -198,9 +217,33 @@ export default function ClientLedger() {
 
             {/* Center Massive Amount */}
             <div className="my-1 sm:my-2">
-              <span className="text-3xl sm:text-5xl lg:text-6xl font-bold font-mono tracking-tight tabular-nums text-white block">
-                {formatINR(totalSpent)}
+              <span
+                className={`text-3xl sm:text-5xl lg:text-6xl font-bold font-mono tracking-tight tabular-nums block ${
+                  isLowBalance ? "text-red-400" : "text-white"
+                }`}
+              >
+                {formatINR(balance)}
               </span>
+            </div>
+
+            {/* Funds vs Spent sub-stats */}
+            <div className="grid grid-cols-2 gap-3 mt-3 sm:mt-4">
+              <div className="rounded-md bg-white/5 border border-white/10 px-3 py-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-300 block">
+                  Total Funds
+                </span>
+                <span className="text-base sm:text-lg font-bold font-mono tabular-nums text-emerald-300 block mt-0.5">
+                  {formatINR(totalFunds)}
+                </span>
+              </div>
+              <div className="rounded-md bg-white/5 border border-white/10 px-3 py-2">
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-300 block">
+                  Total Spent
+                </span>
+                <span className="text-base sm:text-lg font-bold font-mono tabular-nums text-white block mt-0.5">
+                  {formatINR(totalSpent)}
+                </span>
+              </div>
             </div>
 
             {/* Bottom Row */}
@@ -287,14 +330,15 @@ export default function ClientLedger() {
         </main>
       </div>
 
-      {/* MOBILE STICKY BOTTOM FOOTER (< lg breakpoint): Shows Total Spent & amount */}
+      {/* MOBILE STICKY BOTTOM FOOTER (< lg breakpoint): Shows Balance & amount */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white border-t border-gray-200 px-4 py-3 flex items-center justify-between">
         <div>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 block">
-            TOTAL SPENT
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 block flex items-center gap-1">
+            <Wallet className="w-3 h-3" />
+            BALANCE LEFT
           </span>
-          <span className="text-lg font-bold font-mono tabular-nums text-navy">
-            {formatINR(totalSpent)}
+          <span className={`text-lg font-bold font-mono tabular-nums ${isLowBalance ? "text-red-600" : "text-navy"}`}>
+            {formatINR(balance)}
           </span>
         </div>
 

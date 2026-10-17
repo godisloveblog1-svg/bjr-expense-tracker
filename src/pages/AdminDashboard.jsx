@@ -8,6 +8,7 @@ import { supabase, isSupabaseConfigured } from "@/supabaseClient"
 import { fetchCategories, addCategory, deleteCategory } from "@/lib/categoriesService"
 import { exportExpensesToPDF } from "@/lib/pdfExport"
 import { backupTransactionToGoogle } from "@/lib/googleBackupService"
+import { fetchFunds, addFund, updateFund, deleteFund as deleteFundEntry, uploadFundBill } from "@/lib/fundsService"
 import { formatINR } from "@/lib/utils"
 import {
   PlusCircle,
@@ -16,7 +17,10 @@ import {
   FolderPlus,
   Trash2,
   Tag,
-  AlertCircle
+  AlertCircle,
+  Wallet,
+  Pencil,
+  TrendingDown
 } from "lucide-react"
 import { Input, Label, Textarea, Select } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
@@ -52,7 +56,44 @@ export default function AdminDashboard() {
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState("expenses") // "expenses" | "categories"
+  const [activeTab, setActiveTab] = useState("expenses") // "expenses" | "categories" | "funds"
+
+  // Funds state
+  const [funds, setFunds] = useState([])
+  const [fundsLoading, setFundsLoading] = useState(true)
+  const [fundSubmitting, setFundSubmitting] = useState(false)
+  const [fundToDelete, setFundToDelete] = useState(null)
+
+  // Fund Form State
+  const [fundDate, setFundDate] = useState(() => {
+    const today = new Date()
+    return today.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric"
+    })
+  })
+  const [fundAmount, setFundAmount] = useState("")
+  const [fundNote, setFundNote] = useState("")
+  const [fundFile, setFundFile] = useState(null)
+
+  // Edit Expense Modal State
+  const [editingExpense, setEditingExpense] = useState(null)
+  const [editExpDate, setEditExpDate] = useState("")
+  const [editExpDescription, setEditExpDescription] = useState("")
+  const [editExpCategory, setEditExpCategory] = useState("")
+  const [editExpAmount, setEditExpAmount] = useState("")
+  const [editExpNotes, setEditExpNotes] = useState("")
+  const [editExpFile, setEditExpFile] = useState(null)
+  const [savingExpenseEdit, setSavingExpenseEdit] = useState(false)
+
+  // Edit Fund Modal State
+  const [editingFund, setEditingFund] = useState(null)
+  const [editFundDate, setEditFundDate] = useState("")
+  const [editFundAmount, setEditFundAmount] = useState("")
+  const [editFundNote, setEditFundNote] = useState("")
+  const [editFundFile, setEditFundFile] = useState(null)
+  const [savingFundEdit, setSavingFundEdit] = useState(false)
 
   // Category Modal State
   const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false)
@@ -130,10 +171,24 @@ export default function AdminDashboard() {
     }
   }
 
+  // Fetch funds
+  const loadFunds = async () => {
+    setFundsLoading(true)
+    try {
+      const data = await fetchFunds()
+      setFunds(data || [])
+    } catch (err) {
+      console.warn("Failed to load funds:", err)
+    } finally {
+      setFundsLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (isAuthenticated) {
       fetchExpenses()
       loadCategories()
+      loadFunds()
     }
   }, [isAuthenticated])
 
@@ -343,6 +398,213 @@ export default function AdminDashboard() {
     }
   }
 
+  // Handle Fund Submission (client handed over money)
+  const handleFundSubmit = async (e) => {
+    e.preventDefault()
+    if (!fundAmount) {
+      setStatusMessage({ type: "error", text: "Please enter the amount received." })
+      return
+    }
+
+    const numAmount = parseFloat(fundAmount)
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setStatusMessage({ type: "error", text: "Amount must be a positive number greater than 0." })
+      return
+    }
+
+    setFundSubmitting(true)
+    setStatusMessage(null)
+
+    try {
+      // Upload receipt to the shared `bills` storage bucket first (if provided)
+      let uploadedBillUrl = null
+      if (fundFile) {
+        uploadedBillUrl = await uploadFundBill(fundFile)
+      }
+
+      const newFund = await addFund({ date: fundDate, amount: numAmount, note: fundNote, bill_url: uploadedBillUrl })
+      setFunds((prev) => [newFund, ...prev])
+
+      // Background Google backup (tagged as a fund so the sheet can route it)
+      backupTransactionToGoogle({ ...newFund, type: "fund" }).catch((backupErr) => {
+        console.warn("Background Google backup error (fund):", backupErr)
+      })
+
+      setStatusMessage({ type: "success", text: `Funds of ${formatINR(numAmount)} recorded successfully.${uploadedBillUrl ? " Receipt stored." : ""}` })
+      setFundAmount("")
+      setFundNote("")
+      setFundFile(null)
+      const fundFileInput = document.getElementById("fund-bill-upload")
+      if (fundFileInput) fundFileInput.value = ""
+    } catch (err) {
+      setStatusMessage({ type: "error", text: err.message || "Failed to record funds." })
+    } finally {
+      setFundSubmitting(false)
+    }
+  }
+
+  // Handle Fund Delete
+  const handleConfirmDeleteFund = async () => {
+    if (!fundToDelete) return
+    try {
+      await deleteFundEntry(fundToDelete.id)
+      setFunds((prev) => prev.filter((f) => f.id !== fundToDelete.id))
+      setStatusMessage({ type: "success", text: "Fund entry deleted successfully." })
+    } catch (err) {
+      setStatusMessage({ type: "error", text: err.message || "Failed to delete fund entry." })
+    } finally {
+      setFundToDelete(null)
+    }
+  }
+
+  // ---- Edit Expense (attach/replace receipt later works too) ----
+  const openEditExpense = (expense) => {
+    setEditingExpense(expense)
+    setEditExpDate(expense.date || "")
+    setEditExpDescription(expense.description || "")
+    setEditExpCategory(expense.category || "")
+    setEditExpAmount(String(expense.amount ?? ""))
+    setEditExpNotes(expense.notes || "")
+    setEditExpFile(null)
+    setStatusMessage(null)
+  }
+
+  const handleEditExpenseSave = async (e) => {
+    e.preventDefault()
+    if (!editingExpense) return
+    if (!editExpDescription || !editExpAmount) {
+      setStatusMessage({ type: "error", text: "Description and amount are required." })
+      return
+    }
+
+    const numAmount = parseFloat(editExpAmount)
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setStatusMessage({ type: "error", text: "Amount must be a positive number greater than 0." })
+      return
+    }
+
+    setSavingExpenseEdit(true)
+    try {
+      let updatedData = {
+        date: editExpDate,
+        description: editExpDescription,
+        category: editExpCategory,
+        amount: numAmount,
+        notes: editExpNotes
+      }
+
+      // Upload a new receipt if one was picked (attach or replace)
+      if (editExpFile) {
+        const fileExt = editExpFile.name.split(".").pop()
+        const fileName = `expense-${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`
+
+        if (isSupabaseConfigured && supabase) {
+          const { error: uploadError } = await supabase.storage
+            .from("bills")
+            .upload(fileName, editExpFile)
+          if (uploadError) throw new Error(`File upload failed: ${uploadError.message}`)
+
+          const { data: publicUrlData } = supabase.storage
+            .from("bills")
+            .getPublicUrl(fileName)
+          updatedData.bill_url = publicUrlData?.publicUrl || null
+        } else {
+          updatedData.bill_url = URL.createObjectURL(editExpFile)
+        }
+
+        // clear the file input for next time
+        const fileInput = document.getElementById("edit-expense-bill-upload")
+        if (fileInput) fileInput.value = ""
+      }
+
+      if (isSupabaseConfigured && supabase) {
+        const { data, error } = await supabase
+          .from("expenses")
+          .update(updatedData)
+          .eq("id", editingExpense.id)
+          .select()
+
+        if (error) throw new Error(`Database update error: ${error.message}`)
+        const updatedRow = data?.[0] || { ...editingExpense, ...updatedData }
+
+        backupTransactionToGoogle({ ...updatedRow, type: "expense_update" }).catch((backupErr) => {
+          console.warn("Background Google backup error (expense update):", backupErr)
+        })
+
+        setExpenses((prev) => prev.map((row) => (row.id === updatedRow.id ? updatedRow : row)))
+      } else {
+        const updatedRow = { ...editingExpense, ...updatedData }
+        const updated = expenses.map((row) => (row.id === updatedRow.id ? updatedRow : row))
+        setExpenses(updated)
+        localStorage.setItem("bjr_admin_expenses", JSON.stringify(updated))
+      }
+
+      setStatusMessage({ type: "success", text: "Expense updated successfully." })
+      setEditingExpense(null)
+    } catch (err) {
+      setStatusMessage({ type: "error", text: err.message || "Failed to update expense." })
+    } finally {
+      setSavingExpenseEdit(false)
+    }
+  }
+
+  // ---- Edit Fund (attach/replace receipt later works too) ----
+  const openEditFund = (fund) => {
+    setEditingFund(fund)
+    setEditFundDate(fund.date || "")
+    setEditFundAmount(String(fund.amount ?? ""))
+    setEditFundNote(fund.note || "")
+    setEditFundFile(null)
+    setStatusMessage(null)
+  }
+
+  const handleEditFundSave = async (e) => {
+    e.preventDefault()
+    if (!editingFund) return
+    if (!editFundAmount) {
+      setStatusMessage({ type: "error", text: "Amount is required." })
+      return
+    }
+
+    const numAmount = parseFloat(editFundAmount)
+    if (isNaN(numAmount) || numAmount <= 0) {
+      setStatusMessage({ type: "error", text: "Amount must be a positive number greater than 0." })
+      return
+    }
+
+    setSavingFundEdit(true)
+    try {
+      const updates = {
+        date: editFundDate,
+        amount: numAmount,
+        note: editFundNote
+      }
+
+      // Attach or replace the receipt
+      if (editFundFile) {
+        updates.bill_url = await uploadFundBill(editFundFile)
+        const fundFileInput = document.getElementById("edit-fund-bill-upload")
+        if (fundFileInput) fundFileInput.value = ""
+      }
+
+      const updatedRow = await updateFund(editingFund.id, updates)
+
+      backupTransactionToGoogle({ ...(updatedRow || { ...editingFund, ...updates }), type: "fund_update" }).catch((backupErr) => {
+        console.warn("Background Google backup error (fund update):", backupErr)
+      })
+
+      setFunds((prev) =>
+        prev.map((f) => (f.id === editingFund.id ? { ...f, ...(updatedRow || updates) } : f))
+      )
+      setStatusMessage({ type: "success", text: "Fund entry updated successfully." })
+      setEditingFund(null)
+    } catch (err) {
+      setStatusMessage({ type: "error", text: err.message || "Failed to update fund entry." })
+    } finally {
+      setSavingFundEdit(false)
+    }
+  }
+
   // Filter
   const filteredExpenses = expenses.filter((item) => {
     const matchesCategory =
@@ -365,8 +627,13 @@ export default function AdminDashboard() {
     0
   )
 
+  // Balance math: money given by client minus everything spent
+  const totalFunds = funds.reduce((sum, f) => sum + (Number(f.amount) || 0), 0)
+  const balance = totalFunds - totalSpent
+  const isLowBalance = balance <= 0
+
   const handleDownloadPDF = () => {
-    exportExpensesToPDF(filteredExpenses, "BJR Admin Audit")
+    exportExpensesToPDF(filteredExpenses, "BJR Admin Audit", { totalFunds, balance })
   }
 
   const categoryNames = categoriesList.map((c) => c.name)
@@ -391,6 +658,7 @@ export default function AdminDashboard() {
       {/* Sidebar */}
       <Sidebar
         totalSpent={totalSpent}
+        balance={balance}
         transactionCount={filteredExpenses.length}
         activeFilter={selectedCategory}
         onSelectCategory={setSelectedCategory}
@@ -431,6 +699,36 @@ export default function AdminDashboard() {
             </div>
           )}
 
+          {/* TOP BALANCE STRIP (visible on all tabs) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+              <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                <Wallet className="w-3.5 h-3.5" />
+                <span>Funds Received</span>
+              </div>
+              <span className="block mt-1 text-xl font-bold font-mono tabular-nums text-navy">
+                {formatINR(totalFunds)}
+              </span>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
+              <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                <TrendingDown className="w-3.5 h-3.5" />
+                <span>Total Spent</span>
+              </div>
+              <span className="block mt-1 text-xl font-bold font-mono tabular-nums text-navy">
+                {formatINR(totalSpent)}
+              </span>
+            </div>
+            <div className={`rounded-lg border px-4 py-3 ${isLowBalance ? "border-red-300 bg-red-50" : "border-emerald-300 bg-emerald-50"}`}>
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                {isLowBalance ? "⚠ Low Balance" : "Available Balance"}
+              </div>
+              <span className={`block mt-1 text-xl font-bold font-mono tabular-nums ${isLowBalance ? "text-red-600" : "text-emerald-700"}`}>
+                {formatINR(balance)}
+              </span>
+            </div>
+          </div>
+
           {/* Top Admin Section Tabs */}
           <div className="flex items-center gap-2 border-b border-gray-200 pb-3">
             <button
@@ -444,6 +742,18 @@ export default function AdminDashboard() {
             >
               <PlusCircle className="w-3.5 h-3.5" />
               <span>Log Expense & Ledger</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("funds")}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors cursor-pointer ${
+                activeTab === "funds"
+                  ? "bg-navy text-white"
+                  : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
+              }`}
+            >
+              <Wallet className="w-3.5 h-3.5" />
+              <span>Funds Received ({funds.length})</span>
             </button>
             <button
               type="button"
@@ -522,6 +832,162 @@ export default function AdminDashboard() {
                 )}
               </div>
             </div>
+          ) : activeTab === "funds" ? (
+            /* 3. ADMIN DASHBOARD — FUNDS RECEIVED SECTION */
+            <>
+              {/* Add Fund Form Card */}
+              <div className="rounded-lg border border-gray-200 bg-white">
+                <div className="border-b border-gray-200 px-6 py-4">
+                  <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">
+                    Record Funds Received
+                  </h2>
+                  <p className="text-[13px] text-gray-500 mt-0.5">
+                    Every time your client hands you money, log it here. Balance = Funds − Spent
+                  </p>
+                </div>
+
+                <div className="p-6">
+                  <form onSubmit={handleFundSubmit} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="fund-date-picker-btn" className="text-[12px] font-medium text-gray-700">Date</Label>
+                        <DatePicker
+                          id="fund-date-picker-btn"
+                          value={fundDate}
+                          onChange={(newDate) => setFundDate(newDate)}
+                          placeholder="Pick a date"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="fund-amount" className="text-[12px] font-medium text-gray-700">Amount (₹)</Label>
+                        <Input
+                          id="fund-amount"
+                          type="number"
+                          step="0.01"
+                          min="1"
+                          placeholder="e.g. 100000"
+                          value={fundAmount}
+                          onChange={(e) => setFundAmount(e.target.value)}
+                          required
+                          className="h-9 text-[13px] rounded-md border-gray-200 focus:border-navy font-mono"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="fund-bill-upload" className="text-[12px] font-medium text-gray-700">Receipt Voucher</Label>
+                        <input
+                          id="fund-bill-upload"
+                          type="file"
+                          accept="image/*,application/pdf"
+                          onChange={(e) => setFundFile(e.target.files?.[0] || null)}
+                          className="w-full text-[12px] text-gray-500 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border file:border-gray-200 file:text-[12px] file:font-medium file:bg-gray-50 hover:file:bg-gray-100 cursor-pointer"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="fund-note" className="text-[12px] font-medium text-gray-700">Note (Optional)</Label>
+                      <Input
+                        id="fund-note"
+                        type="text"
+                        placeholder="e.g. Cash received for October hosting"
+                        value={fundNote}
+                        onChange={(e) => setFundNote(e.target.value)}
+                        className="h-9 text-[13px] rounded-md border-gray-200 focus:border-navy"
+                      />
+                    </div>
+
+                    <div className="pt-2 flex justify-end">
+                      <Button
+                        type="submit"
+                        disabled={fundSubmitting}
+                        className="min-w-[140px] text-[13px] font-medium bg-navy hover:bg-navy-dark text-white rounded-md h-9"
+                      >
+                        {fundSubmitting ? "Saving..." : "Record Funds"}
+                      </Button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+
+              {/* Funds Log */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-[15px] font-semibold text-gray-900 tracking-tight">Funds Log</h3>
+                    <p className="text-[13px] text-gray-500">
+                      Money received from the client, newest first
+                    </p>
+                  </div>
+                  <div className="text-[12px] font-mono text-gray-500">
+                    {funds.length} entries
+                  </div>
+                </div>
+
+                {fundsLoading ? (
+                  <div className="rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-500 text-[13px]">
+                    Fetching funds log...
+                  </div>
+                ) : funds.length === 0 ? (
+                  <div className="rounded-lg border border-gray-200 bg-white p-8 text-center text-gray-500 text-[13px]">
+                    No funds recorded yet. Use the form above when your client hands you money.
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-gray-200 bg-white divide-y divide-gray-100">
+                    {funds.map((fund) => (
+                      <div
+                        key={fund.id}
+                        className="flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors"
+                      >
+                        <div className="min-w-0">
+                          <div className="text-[13px] font-semibold text-gray-900">
+                            {fund.date || "No date"}
+                          </div>
+                          {fund.note ? (
+                            <div className="text-[12px] text-gray-500 truncate">{fund.note}</div>
+                          ) : null}
+                        </div>
+
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="text-[13px] font-bold font-mono tabular-nums text-emerald-700">
+                            +{formatINR(fund.amount)}
+                          </span>
+                          {fund.bill_url ? (
+                            <a
+                              href={fund.bill_url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[11px] font-semibold text-navy hover:underline whitespace-nowrap"
+                            >
+                              VIEW BILL
+                            </a>
+                          ) : null}
+                          <button
+                            type="button"
+                            onClick={() => openEditFund(fund)}
+                            className="p-1 text-gray-400 hover:text-navy transition-colors cursor-pointer rounded"
+                            title="Edit fund entry / attach receipt"
+                            aria-label="Edit fund entry"
+                          >
+                            <Pencil className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setFundToDelete(fund)}
+                            className="p-1 text-gray-400 hover:text-red-600 transition-colors cursor-pointer rounded"
+                            title="Delete fund entry"
+                            aria-label="Delete fund entry"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
           ) : (
             /* 1. ADD EXPENSE FORM & RECORDED ENTRIES */
             <>
@@ -671,6 +1137,7 @@ export default function AdminDashboard() {
                 ) : (
                   <ExpenseTable
                     expenses={filteredExpenses}
+                    onEdit={openEditExpense}
                     onDelete={handleDelete}
                     isAdmin={true}
                     categoryColorMap={categoryColorMap}
@@ -819,6 +1286,259 @@ export default function AdminDashboard() {
               Delete Category
             </Button>
           </DialogFooter>
+        </div>
+      </Dialog>
+      {/* MODAL 3: CONFIRM DELETE FUND DIALOG */}
+      <Dialog open={Boolean(fundToDelete)} onOpenChange={() => setFundToDelete(null)}>
+        <div className="relative">
+          <DialogClose onClick={() => setFundToDelete(null)} />
+          <DialogHeader>
+            <div className="w-10 h-10 rounded-full bg-red-50 text-red-600 flex items-center justify-center mb-2 mx-auto sm:mx-0">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            <DialogTitle className="text-base text-gray-900 font-bold">
+              Delete Fund Entry?
+            </DialogTitle>
+            <DialogDescription className="text-xs text-gray-500 leading-relaxed">
+              This will remove {fundToDelete && Number(fundToDelete.amount) ? formatINR(fundToDelete.amount) : "this entry"} from the funds log and the balance will be recalculated.
+            </DialogDescription>
+          </DialogHeader>
+
+          <DialogFooter className="mt-5">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setFundToDelete(null)}
+              className="text-xs text-gray-600 hover:bg-gray-100"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleConfirmDeleteFund}
+              className="text-xs font-semibold bg-red-600 hover:bg-red-700 text-white"
+            >
+              Delete Entry
+            </Button>
+          </DialogFooter>
+        </div>
+      </Dialog>
+      {/* MODAL 4: EDIT EXPENSE DIALOG */}
+      <Dialog open={Boolean(editingExpense)} onOpenChange={() => setEditingExpense(null)}>
+        <div className="relative">
+          <DialogClose onClick={() => setEditingExpense(null)} />
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base text-navy font-bold">
+              <Pencil className="w-4 h-4" />
+              Edit Expense
+            </DialogTitle>
+            <DialogDescription className="text-xs text-gray-500">
+              Update any field. Upload a new voucher to attach or replace the receipt.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleEditExpenseSave} className="space-y-4 mt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-expense-date" className="text-[12px] font-medium text-gray-700">Date</Label>
+                <DatePicker
+                  id="edit-expense-date"
+                  value={editExpDate}
+                  onChange={(newDate) => setEditExpDate(newDate)}
+                  placeholder="Pick a date"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-expense-category" className="text-[12px] font-medium text-gray-700">Category</Label>
+                <Select
+                  id="edit-expense-category"
+                  value={editExpCategory}
+                  onChange={(e) => setEditExpCategory(e.target.value)}
+                  className="h-9 text-[13px] rounded-md border-gray-200 focus:border-navy"
+                >
+                  {categoriesList.map((catItem) => (
+                    <option key={catItem.id || catItem.name} value={catItem.name}>
+                      {catItem.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-expense-amount" className="text-[12px] font-medium text-gray-700">Amount (₹)</Label>
+                <Input
+                  id="edit-expense-amount"
+                  type="number"
+                  step="0.01"
+                  min="1"
+                  value={editExpAmount}
+                  onChange={(e) => setEditExpAmount(e.target.value)}
+                  required
+                  className="h-9 text-[13px] rounded-md border-gray-200 focus:border-navy font-mono"
+                />
+              </div>
+
+              {/* Current receipt preview link + optional replacement */}
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-expense-bill-upload" className="text-[12px] font-medium text-gray-700">Receipt Voucher</Label>
+                {editingExpense?.bill_url && !editExpFile ? (
+                  <a
+                    href={editingExpense.bill_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-[11px] font-semibold text-navy hover:underline"
+                  >
+                    VIEW CURRENT BILL ↗
+                  </a>
+                ) : null}
+                <input
+                  id="edit-expense-bill-upload"
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={(e) => setEditExpFile(e.target.files?.[0] || null)}
+                  className="w-full text-[12px] text-gray-500 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border file:border-gray-200 file:text-[12px] file:font-medium file:bg-gray-50 hover:file:bg-gray-100 cursor-pointer"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-expense-description" className="text-[12px] font-medium text-gray-700">Description</Label>
+              <Input
+                id="edit-expense-description"
+                type="text"
+                value={editExpDescription}
+                onChange={(e) => setEditExpDescription(e.target.value)}
+                required
+                className="h-9 text-[13px] rounded-md border-gray-200 focus:border-navy"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-expense-notes" className="text-[12px] font-medium text-gray-700">Client Audit Notes (Optional)</Label>
+              <Textarea
+                id="edit-expense-notes"
+                value={editExpNotes}
+                onChange={(e) => setEditExpNotes(e.target.value)}
+                rows={2}
+                className="text-[13px] rounded-md border-gray-200 focus:border-navy"
+              />
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setEditingExpense(null)}
+                className="text-xs text-gray-600 hover:bg-gray-100"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={savingExpenseEdit}
+                className="text-xs font-semibold bg-navy hover:bg-navy-dark text-white"
+              >
+                {savingExpenseEdit ? "Saving..." : "Save Changes"}
+              </Button>
+            </DialogFooter>
+          </form>
+        </div>
+      </Dialog>
+
+      {/* MODAL 5: EDIT FUND DIALOG */}
+      <Dialog open={Boolean(editingFund)} onOpenChange={() => setEditingFund(null)}>
+        <div className="relative">
+          <DialogClose onClick={() => setEditingFund(null)} />
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-base text-navy font-bold">
+              <Pencil className="w-4 h-4" />
+              Edit Fund Entry
+            </DialogTitle>
+            <DialogDescription className="text-xs text-gray-500">
+              Update details, or attach the receipt now / replace the current one.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleEditFundSave} className="space-y-4 mt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-fund-date" className="text-[12px] font-medium text-gray-700">Date</Label>
+                <DatePicker
+                  id="edit-fund-date"
+                  value={editFundDate}
+                  onChange={(newDate) => setEditFundDate(newDate)}
+                  placeholder="Pick a date"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor="edit-fund-amount" className="text-[12px] font-medium text-gray-700">Amount (₹)</Label>
+                <Input
+                  id="edit-fund-amount"
+                  type="number"
+                  step="0.01"
+                  min="1"
+                  value={editFundAmount}
+                  onChange={(e) => setEditFundAmount(e.target.value)}
+                  required
+                  className="h-9 text-[13px] rounded-md border-gray-200 focus:border-navy font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-fund-bill-upload" className="text-[12px] font-medium text-gray-700">Receipt Voucher</Label>
+              {editingFund?.bill_url && !editFundFile ? (
+                <a
+                  href={editingFund.bill_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-[11px] font-semibold text-navy hover:underline"
+                >
+                  VIEW CURRENT BILL ↗
+                </a>
+              ) : null}
+              <input
+                id="edit-fund-bill-upload"
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={(e) => setEditFundFile(e.target.files?.[0] || null)}
+                className="w-full text-[12px] text-gray-500 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border file:border-gray-200 file:text-[12px] file:font-medium file:bg-gray-50 hover:file:bg-gray-100 cursor-pointer"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="edit-fund-note" className="text-[12px] font-medium text-gray-700">Note (Optional)</Label>
+              <Input
+                id="edit-fund-note"
+                type="text"
+                value={editFundNote}
+                onChange={(e) => setEditFundNote(e.target.value)}
+                className="h-9 text-[13px] rounded-md border-gray-200 focus:border-navy"
+              />
+            </div>
+
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setEditingFund(null)}
+                className="text-xs text-gray-600 hover:bg-gray-100"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                disabled={savingFundEdit}
+                className="text-xs font-semibold bg-navy hover:bg-navy-dark text-white"
+              >
+                {savingFundEdit ? "Saving..." : "Save Changes"}
+              </Button>
+            </DialogFooter>
+          </form>
         </div>
       </Dialog>
     </div>

@@ -23,7 +23,8 @@ async function getBase64ImageFromUrl(imageUrl) {
   }
 }
 
-export async function exportExpensesToPDF(expenses, clientName = "Client Ledger") {
+export async function exportExpensesToPDF(expenses, clientName = "Client Ledger", summary = {}) {
+  const { totalFunds = null, balance = null } = summary
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
@@ -98,12 +99,13 @@ export async function exportExpensesToPDF(expenses, clientName = "Client Ledger"
   const totalAmount = expenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
   const totalTransactions = expenses.length
 
-  // Summary box
+  // Summary box (taller when balance info is included)
+  const boxH = totalFunds !== null ? 26 : 18
   const summaryBoxY = separatorY + 4
   doc.setFillColor(...lightGrayRGB)
   doc.setDrawColor(...borderGrayRGB)
-  doc.roundedRect(14, summaryBoxY, 182, 18, 2, 2, "FD")
-  
+  doc.roundedRect(14, summaryBoxY, 182, boxH, 2, 2, "FD")
+
   doc.setFontSize(9.5)
   doc.setTextColor(...navyRGB)
   doc.text("Total Transactions:", 18, summaryBoxY + 11)
@@ -119,6 +121,20 @@ export async function exportExpensesToPDF(expenses, clientName = "Client Ledger"
   doc.setTextColor(...goldRGB)
   doc.text(`${formatINR(totalAmount)}`, 148, summaryBoxY + 11)
 
+  // Balance row (funds received vs amount left)
+  if (totalFunds !== null) {
+    doc.setFont("helvetica", "normal")
+    doc.setFontSize(9.5)
+    doc.setTextColor(...navyRGB)
+    doc.text("Total Funds Received:", 18, summaryBoxY + 20)
+    doc.setFont("helvetica", "bold")
+    doc.text(`${formatINR(totalFunds)}`, 56, summaryBoxY + 20)
+    doc.setFont("helvetica", "normal")
+    doc.text("Available Balance Left:", 100, summaryBoxY + 20)
+    doc.setFont("helvetica", "bold")
+    doc.text(`${formatINR(balance ?? 0)}`, 148, summaryBoxY + 20)
+  }
+
   // Prepare table data
   const tableRows = expenses.map((item, idx) => [
     idx + 1,
@@ -131,7 +147,7 @@ export async function exportExpensesToPDF(expenses, clientName = "Client Ledger"
   ])
 
   autoTable(doc, {
-    startY: summaryBoxY + 23,
+    startY: summaryBoxY + boxH + 5,
     head: [["#", "Date", "Description", "Category", "Amount", "Proof", "Notes"]],
     body: tableRows,
     theme: "striped",

@@ -1,5 +1,5 @@
 import React, { useState } from "react"
-import { FileText, Receipt } from "lucide-react"
+import { FileText, Receipt, Pencil } from "lucide-react"
 import { CategoryBadge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -15,6 +15,7 @@ import { formatINR } from "@/lib/utils"
 export default function ExpenseTable({
   expenses = [],
   onDelete,
+  onEdit,
   isAdmin = false,
   categoryColorMap = {}
 }) {
@@ -69,7 +70,7 @@ export default function ExpenseTable({
                   Notes
                 </th>
                 {isAdmin && (
-                  <th className="text-xs uppercase tracking-wider text-gray-500 font-semibold py-2.5 px-4 text-right w-[90px]">
+                  <th className="text-xs uppercase tracking-wider text-gray-500 font-semibold py-2.5 px-4 text-right w-[120px]">
                     Actions
                   </th>
                 )}
@@ -124,9 +125,18 @@ export default function ExpenseTable({
                     {expense.notes || <span className="text-gray-300">-</span>}
                   </td>
 
-                  {/* Admin Delete */}
+                  {/* Admin Edit / Delete */}
                   {isAdmin && (
-                    <td className="py-3 px-4 text-right">
+                    <td className="py-3 px-4 text-right w-[110px] whitespace-nowrap">
+                      {onEdit && (
+                        <button
+                          onClick={() => onEdit(expense)}
+                          className="text-xs text-gray-400 hover:text-navy font-medium cursor-pointer mr-3"
+                        >
+                          <Pencil className="w-3.5 h-3.5 inline-block mr-0.5 -mt-0.5" />
+                          Edit
+                        </button>
+                      )}
                       <button
                         onClick={() => onDelete(expense.id)}
                         className="text-xs text-gray-400 hover:text-red-600 font-medium cursor-pointer"
@@ -201,12 +211,23 @@ export default function ExpenseTable({
                 )}
 
                 {isAdmin && (
-                  <button
-                    onClick={() => onDelete(expense.id)}
-                    className="text-xs text-gray-400 hover:text-red-600 font-medium cursor-pointer"
-                  >
-                    Delete
-                  </button>
+                  <>
+                    {onEdit && (
+                      <button
+                        onClick={() => onEdit(expense)}
+                        className="text-xs text-gray-400 hover:text-navy font-medium cursor-pointer inline-flex items-center gap-0.5"
+                      >
+                        <Pencil className="w-3 h-3" />
+                        Edit
+                      </button>
+                    )}
+                    <button
+                      onClick={() => onDelete(expense.id)}
+                      className="text-xs text-gray-400 hover:text-red-600 font-medium cursor-pointer"
+                    >
+                      Delete
+                    </button>
+                  </>
                 )}
               </div>
             </div>
