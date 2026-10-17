@@ -1029,6 +1029,76 @@ export default function AdminDashboard() {
           ) : activeTab === "investments" ? (
             /* 4. ADMIN DASHBOARD — INVESTMENTS SECTION */
             <>
+              {/* PROJECT CAPITAL OVERVIEW — Investments + Expenses & Overall Funds spent on the project */}
+              <div className="rounded-lg border border-gray-200 bg-white">
+                <div className="border-b border-gray-200 px-6 py-4 flex items-center gap-2">
+                  <Rocket className="w-4 h-4 text-[#D4AF37]" />
+                  <div>
+                    <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">
+                      Project Capital Overview
+                    </h2>
+                    <p className="text-[13px] text-gray-500 mt-0.5">
+                      Investments &amp; overall funds — expenses and everything spent on the project, at a glance
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-6 grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  {/* Total Invested (gold headline) */}
+                  <div className="rounded-lg border border-[#D4AF37]/50 bg-gradient-to-br from-[#0B2149] to-[#123168] px-4 py-3.5 text-white">
+                    <div className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-[#D4AF37]">
+                      <Rocket className="w-3.5 h-3.5" />
+                      <span>Total Invested</span>
+                    </div>
+                    <span className="block mt-1.5 text-xl font-bold font-mono tabular-nums text-white">
+                      {formatINR(totalInvested)}
+                    </span>
+                    <span className="block mt-0.5 text-[11px] text-gray-300">
+                      Capital in, {investments.length} round{investments.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+
+                  {/* Funds Received */}
+                  <div className="rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3.5">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                      Funds Received
+                    </div>
+                    <span className="block mt-1.5 text-xl font-bold font-mono tabular-nums text-navy">
+                      {formatINR(totalFunds)}
+                    </span>
+                    <span className="block mt-0.5 text-[11px] text-gray-400">
+                      Working money you hold
+                    </span>
+                  </div>
+
+                  {/* Total Spent */}
+                  <div className="rounded-lg border border-gray-200 bg-gray-50/50 px-4 py-3.5">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                      Total Spent
+                    </div>
+                    <span className="block mt-1.5 text-xl font-bold font-mono tabular-nums text-navy">
+                      {formatINR(totalSpent)}
+                    </span>
+                    <span className="block mt-0.5 text-[11px] text-gray-400">
+                      Expenses + overall project spend
+                    </span>
+                  </div>
+
+                  {/* Available Balance */}
+                  <div className={`rounded-lg border px-4 py-3.5 ${isLowBalance ? "border-red-300 bg-red-50" : "border-emerald-300 bg-emerald-50"}`}>
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                      {isLowBalance ? "⚠ Low Balance" : "Available Balance"}
+                    </div>
+                    <span className={`block mt-1.5 text-xl font-bold font-mono tabular-nums ${isLowBalance ? "text-red-600" : "text-emerald-700"}`}>
+                      {formatINR(balance)}
+                    </span>
+                    <span className="block mt-0.5 text-[11px] text-gray-500">
+                      Funds − Spent
+                    </span>
+                  </div>
+                </div>
+              </div>
+
               {/* Add Investment Form Card */}
               <div className="rounded-lg border border-gray-200 bg-white">
                 <div className="border-b border-gray-200 px-6 py-4">
