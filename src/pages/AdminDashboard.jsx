@@ -28,6 +28,7 @@ import {
   Wallet,
   Pencil,
   Rocket,
+  ShieldCheck,
   TrendingDown
 } from "lucide-react"
 import { Input, Label, Textarea, Select } from "@/components/ui/input"
@@ -52,9 +53,8 @@ const PRESET_COLORS = [
 ]
 
 export default function AdminDashboard() {
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    return sessionStorage.getItem("admin_authed") === "true"
-  })
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [authChecking, setAuthChecking] = useState(true)
   const [expenses, setExpenses] = useState([])
   const [categoriesList, setCategoriesList] = useState([])
   const [loading, setLoading] = useState(true)
@@ -232,6 +232,31 @@ export default function AdminDashboard() {
     }
   }
 
+  // Restore / watch the real Supabase auth session (writes are authorized by it)
+  useEffect(() => {
+    let active = true
+
+    if (!(isSupabaseConfigured && supabase)) {
+      setAuthChecking(false)
+      return
+    }
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!active) return
+      setIsAuthenticated(Boolean(data?.session))
+      setAuthChecking(false)
+    })
+
+    const { data: authSub } = supabase.auth.onAuthStateChange((_event, session) => {
+      setIsAuthenticated(Boolean(session))
+    })
+
+    return () => {
+      active = false
+      authSub?.subscription?.unsubscribe?.()
+    }
+  }, [])
+
   useEffect(() => {
     if (isAuthenticated) {
       fetchExpenses()
@@ -241,8 +266,15 @@ export default function AdminDashboard() {
     }
   }, [isAuthenticated])
 
-  const handleLogout = () => {
-    sessionStorage.removeItem("admin_authed")
+  const handleLogout = async () => {
+    try {
+      if (isSupabaseConfigured && supabase) {
+        await supabase.auth.signOut()
+      }
+    } catch (err) {
+      console.warn("Sign out error:", err)
+    }
+    sessionStorage.removeItem("admin_authed") // clear legacy flag
     setIsAuthenticated(false)
   }
 
@@ -823,6 +855,19 @@ export default function AdminDashboard() {
     })
     return map
   }, [categoriesList])
+
+  if (authChecking) {
+    return (
+      <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4">
+        <div className="text-center">
+          <div className="w-10 h-10 rounded-full border border-gray-200 bg-white flex items-center justify-center mx-auto mb-3">
+            <ShieldCheck className="w-5 h-5 text-gray-400" />
+          </div>
+          <p className="text-xs text-gray-500 font-medium">Verifying admin session...</p>
+        </div>
+      </div>
+    )
+  }
 
   if (!isAuthenticated) {
     return <AdminPasswordGate onAuthenticated={() => setIsAuthenticated(true)} />

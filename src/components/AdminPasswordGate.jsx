@@ -1,36 +1,52 @@
 import React, { useState } from "react"
-import { Lock, ArrowRight, AlertCircle, KeyRound } from "lucide-react"
+import { Lock, ArrowRight, AlertCircle, KeyRound, Mail } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { supabase, isSupabaseConfigured } from "@/supabaseClient"
 import logo from "@/assets/logo.png"
 
 export default function AdminPasswordGate({ onAuthenticated }) {
+  const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
 
-  const handleUnlock = (e) => {
+  const handleUnlock = async (e) => {
     e.preventDefault()
     setError("")
+
+    if (!(isSupabaseConfigured && supabase)) {
+      setError("Supabase is not configured. Check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.")
+      return
+    }
+
     setLoading(true)
+    try {
+      // Real authentication — the session token is what authorizes all writes.
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password
+      })
 
-    const expectedPassword = import.meta.env.VITE_ADMIN_PASSWORD || ""
-
-    // Small delay to provide natural button feedback
-    setTimeout(() => {
-      if (!expectedPassword) {
-        setError("VITE_ADMIN_PASSWORD is not configured in .env")
-        setLoading(false)
+      if (authError) {
+        setError(
+          authError.message === "Invalid login credentials"
+            ? "Invalid email or password. Please try again."
+            : authError.message
+        )
         return
       }
 
-      if (password === expectedPassword) {
-        sessionStorage.setItem("admin_authed", "true")
-        onAuthenticated()
-      } else {
-        setError("Invalid password. Please try again.")
-        setLoading(false)
+      if (!data?.session) {
+        setError("Sign-in succeeded but no session was returned. Please try again.")
+        return
       }
-    }, 200)
+
+      onAuthenticated()
+    } catch (err) {
+      setError(err.message || "Sign-in failed. Please try again.")
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -52,15 +68,41 @@ export default function AdminPasswordGate({ onAuthenticated }) {
               Restricted Area
             </div>
             <h1 className="text-xl font-bold tracking-tight text-navy">
-              Admin Access
+              Admin Sign In
             </h1>
             <p className="text-xs text-gray-500 mt-1">
-              Enter the master passphrase to manage expenses & categories
+              Sign in to manage expenses, funds and investments
             </p>
           </div>
 
           {/* Form */}
           <form onSubmit={handleUnlock} className="space-y-4">
+            <div>
+              <label
+                htmlFor="admin-email"
+                className="block text-xs font-semibold text-gray-700 uppercase tracking-wider mb-1.5"
+              >
+                Email
+              </label>
+              <div className="relative">
+                <Mail className="w-4 h-4 absolute left-3 top-3 text-gray-400" />
+                <input
+                  id="admin-email"
+                  type="email"
+                  autoComplete="username"
+                  autoFocus
+                  required
+                  value={email}
+                  onChange={(e) => {
+                    setEmail(e.target.value)
+                    if (error) setError("")
+                  }}
+                  placeholder="you@example.com"
+                  className="w-full h-10 pl-9 pr-3.5 text-sm rounded-lg border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-navy focus:ring-1 focus:ring-navy transition-colors"
+                />
+              </div>
+            </div>
+
             <div>
               <label
                 htmlFor="admin-password"
@@ -72,14 +114,14 @@ export default function AdminPasswordGate({ onAuthenticated }) {
                 <input
                   id="admin-password"
                   type="password"
-                  autoFocus
+                  autoComplete="current-password"
                   required
                   value={password}
                   onChange={(e) => {
                     setPassword(e.target.value)
                     if (error) setError("")
                   }}
-                  placeholder="Enter admin password..."
+                  placeholder="Enter your password..."
                   className="w-full h-10 px-3.5 text-sm rounded-lg border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-navy focus:ring-1 focus:ring-navy transition-colors"
                 />
               </div>
@@ -94,7 +136,7 @@ export default function AdminPasswordGate({ onAuthenticated }) {
 
             <Button
               type="submit"
-              disabled={loading || !password}
+              disabled={loading || !email || !password}
               className="w-full h-10 bg-navy hover:bg-navy/90 text-white font-medium text-sm rounded-lg flex items-center justify-center gap-2 transition-all shadow-sm"
             >
               {loading ? (
@@ -102,7 +144,7 @@ export default function AdminPasswordGate({ onAuthenticated }) {
               ) : (
                 <>
                   <Lock className="w-4 h-4" />
-                  <span>Unlock</span>
+                  <span>Sign In</span>
                   <ArrowRight className="w-4 h-4 ml-auto" />
                 </>
               )}
@@ -112,7 +154,7 @@ export default function AdminPasswordGate({ onAuthenticated }) {
           {/* Security footnote */}
           <div className="pt-2 border-t border-gray-100 text-center">
             <span className="text-[11px] text-gray-400">
-              Session-only authentication • Non-persistent
+              Secured by Supabase Auth • Writes require a signed-in admin
             </span>
           </div>
         </div>
