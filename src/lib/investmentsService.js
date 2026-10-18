@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from "@/supabaseClient"
+import { selectActiveRows, softDeleteRow } from "@/lib/softDelete"
 
 const LOCAL_KEY = "bjr_admin_investments"
 
@@ -12,27 +13,13 @@ function getLocalInvestments() {
 
 /**
  * Fetch all investment entries (money poured into the startup by the investor).
- * Falls back to localStorage when Supabase is not configured.
+ * Throws on failure so callers can show an honest error state instead of ₹0.
  */
 export async function fetchInvestments() {
-  if (isSupabaseConfigured && supabase) {
-    try {
-      const { data, error } = await supabase
-        .from("investments")
-        .select("*")
-        .order("id", { ascending: false })
+  if (!(isSupabaseConfigured && supabase)) return getLocalInvestments()
 
-      if (error) {
-        console.warn("Error fetching investments:", error)
-        return []
-      }
-      return data || []
-    } catch (err) {
-      console.error("Fetch investments error:", err)
-      return []
-    }
-  }
-  return getLocalInvestments()
+  const { data } = await selectActiveRows("investments")
+  return data
 }
 
 /**
@@ -111,21 +98,15 @@ export async function updateInvestment(id, updates = {}) {
 }
 
 /**
- * Delete an investment entry.
+ * Delete an investment entry (soft delete: stays in the audit trail, restorable).
  */
 export async function deleteInvestment(id) {
-  if (isSupabaseConfigured && supabase) {
-    const { data, error } = await supabase
-      .from("investments")
-      .delete()
-      .eq("id", id)
-      .select()
-
-    if (error) throw new Error(`Database delete error: ${error.message}`)
-    return data
+  if (!(isSupabaseConfigured && supabase)) {
+    const updated = getLocalInvestments().filter((inv) => inv.id !== id)
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(updated))
+    return [id]
   }
 
-  const updated = getLocalInvestments().filter((inv) => inv.id !== id)
-  localStorage.setItem(LOCAL_KEY, JSON.stringify(updated))
+  await softDeleteRow("investments", id)
   return [id]
 }

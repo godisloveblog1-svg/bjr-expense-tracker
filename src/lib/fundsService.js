@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from "@/supabaseClient"
+import { selectActiveRows, softDeleteRow } from "@/lib/softDelete"
 
 const LOCAL_KEY = "bjr_admin_funds"
 
@@ -12,27 +13,14 @@ function getLocalFunds() {
 
 /**
  * Fetch all fund entries (money received from the client).
- * Falls back to localStorage when Supabase is not configured.
+ * Throws on failure so callers can show an honest error state instead
+ * of rendering ₹0 funds and looking like the money disappeared.
  */
 export async function fetchFunds() {
-  if (isSupabaseConfigured && supabase) {
-    try {
-      const { data, error } = await supabase
-        .from("funds")
-        .select("*")
-        .order("id", { ascending: false })
+  if (!(isSupabaseConfigured && supabase)) return getLocalFunds()
 
-      if (error) {
-        console.warn("Error fetching funds:", error)
-        return []
-      }
-      return data || []
-    } catch (err) {
-      console.error("Fetch funds error:", err)
-      return []
-    }
-  }
-  return getLocalFunds()
+  const { data } = await selectActiveRows("funds")
+  return data
 }
 
 /**
@@ -111,21 +99,15 @@ export async function updateFund(id, updates = {}) {
 }
 
 /**
- * Delete a fund entry.
+ * Delete a fund entry (soft delete: stays in the audit trail, restorable).
  */
 export async function deleteFund(id) {
-  if (isSupabaseConfigured && supabase) {
-    const { data, error } = await supabase
-      .from("funds")
-      .delete()
-      .eq("id", id)
-      .select()
-
-    if (error) throw new Error(`Database delete error: ${error.message}`)
-    return data
+  if (!(isSupabaseConfigured && supabase)) {
+    const updated = getLocalFunds().filter((f) => f.id !== id)
+    localStorage.setItem(LOCAL_KEY, JSON.stringify(updated))
+    return [id]
   }
 
-  const updated = getLocalFunds().filter((f) => f.id !== id)
-  localStorage.setItem(LOCAL_KEY, JSON.stringify(updated))
+  await softDeleteRow("funds", id)
   return [id]
 }

@@ -1,6 +1,25 @@
 import React from "react"
-import { Search, Menu, Lock } from "lucide-react"
+import { Search, Menu, Lock, AlertTriangle } from "lucide-react"
 import { Select } from "@/components/ui/input"
+
+/**
+ * Human-readable "Last updated" line. Never a hardcoded date:
+ * shows the real time the ledger last loaded, or an explicit
+ * "not loaded" state so on-screen figures are never mistaken for fresh.
+ */
+function lastUpdatedLabel(lastUpdated, hasSyncIssue) {
+  if (hasSyncIssue && !lastUpdated) return "Live data unavailable"
+  if (!lastUpdated) return "Syncing…"
+
+  const time = lastUpdated.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  })
+  return `Last updated ${time}`
+}
 
 export default function Header({
   searchTerm = "",
@@ -9,7 +28,9 @@ export default function Header({
   onCategoryChange,
   categories = [],
   onToggleSidebar,
-  onLogout
+  onLogout,
+  lastUpdated = null,
+  hasSyncIssue = false
 }) {
   return (
     <header className="bg-white border-b border-gray-200 sticky top-0 z-30 px-4 sm:px-6 py-3.5">
@@ -58,15 +79,23 @@ export default function Header({
             </Select>
           </div>
 
-          {/* Live Status indicator on the right */}
+          {/* Live Status indicator on the right — reflects the real data load */}
           <div className="flex items-center gap-2 pl-2 border-l border-gray-200 whitespace-nowrap">
             <div className="flex items-center gap-1.5">
-              <span className="w-2 h-2 bg-green-500 rounded-full shrink-0" />
-              <span className="text-xs text-gray-600 font-medium">Live</span>
+              {hasSyncIssue ? (
+                <AlertTriangle className="w-3.5 h-3.5 text-red-500 shrink-0" />
+              ) : (
+                <span className="w-2 h-2 bg-green-500 rounded-full shrink-0" />
+              )}
+              <span
+                className={`text-xs font-medium ${hasSyncIssue ? "text-red-600" : "text-gray-600"}`}
+              >
+                {hasSyncIssue ? "Sync issue" : "Live"}
+              </span>
             </div>
             <div className="w-px h-4 bg-gray-200" />
             <span className="text-xs text-gray-400 font-normal">
-              Last updated 08 Oct 2026, 4:30 PM
+              {lastUpdatedLabel(lastUpdated, hasSyncIssue)}
             </span>
           </div>
 

@@ -3,9 +3,10 @@ import Sidebar from "@/components/Sidebar"
 import Header from "@/components/Header"
 import ExpenseTable from "@/components/ExpenseTable"
 import AdminPasswordGate from "@/components/AdminPasswordGate"
-import { MOCK_EXPENSES } from "@/data/mockExpenses"
+import AuditTrail from "@/components/AuditTrail"
 import { supabase, isSupabaseConfigured } from "@/supabaseClient"
 import { fetchCategories, addCategory, deleteCategory } from "@/lib/categoriesService"
+import { fetchExpenses, deleteExpense } from "@/lib/expensesService"
 import { exportExpensesToPDF } from "@/lib/pdfExport"
 import { backupTransactionToGoogle } from "@/lib/googleBackupService"
 import { fetchFunds, addFund, updateFund, deleteFund as deleteFundEntry, uploadFundBill } from "@/lib/fundsService"
@@ -29,6 +30,8 @@ import {
   Pencil,
   Rocket,
   ShieldCheck,
+  History,
+  RefreshCw,
   TrendingDown
 } from "lucide-react"
 import { Input, Label, Textarea, Select } from "@/components/ui/input"
@@ -65,6 +68,11 @@ export default function AdminDashboard() {
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [activeTab, setActiveTab] = useState("expenses") // "expenses" | "categories" | "funds"
+
+  // Trust layer: a real "last updated" time and honest per-source load errors,
+  // so a failed fetch can never masquerade as ₹0 money.
+  const [lastSyncedAt, setLastSyncedAt] = useState(null)
+  const [syncErrors, setSyncErrors] = useState({ expenses: null, funds: null, investments: null })
 
   // Funds state
   const [funds, setFunds] = useState([])
@@ -152,39 +160,27 @@ export default function AdminDashboard() {
   const [notes, setNotes] = useState("")
   const [file, setFile] = useState(null)
 
-  // Fetch expenses
-  const fetchExpenses = async () => {
+  // Marks a source as successfully synced and records the real "last updated" time
+  const markSynced = (key) => {
+    setSyncErrors((prev) => ({ ...prev, [key]: null }))
+    setLastSyncedAt(new Date())
+  }
+
+  // Records a failed source WITHOUT wiping what is already on screen
+  const markSyncFailed = (key, message) => {
+    setSyncErrors((prev) => ({ ...prev, [key]: message || "Failed to load" }))
+  }
+
+  // Fetch expenses — a failure is reported honestly, never as ₹0 or demo data
+  const loadExpenses = async () => {
     setLoading(true)
     try {
-      if (isSupabaseConfigured && supabase) {
-        const { data, error } = await supabase
-          .from("expenses")
-          .select("*")
-          .order("id", { ascending: false })
-
-        if (error) {
-          console.warn("Error fetching Supabase rows, using fallback state:", error)
-          setExpenses(MOCK_EXPENSES)
-        } else if (data && data.length > 0) {
-          setExpenses(data)
-        } else {
-          setExpenses([])
-        }
-      } else {
-        const local = localStorage.getItem("bjr_admin_expenses")
-        if (local) {
-          try {
-            setExpenses(JSON.parse(local))
-          } catch {
-            setExpenses(MOCK_EXPENSES)
-          }
-        } else {
-          setExpenses(MOCK_EXPENSES)
-        }
-      }
+      const data = await fetchExpenses()
+      setExpenses(data || [])
+      markSynced("expenses")
     } catch (err) {
       console.error("Fetch expenses error:", err)
-      setExpenses(MOCK_EXPENSES)
+      markSyncFailed("expenses", err.message)
     } finally {
       setLoading(false)
     }
@@ -212,8 +208,10 @@ export default function AdminDashboard() {
     try {
       const data = await fetchFunds()
       setFunds(data || [])
+      markSynced("funds")
     } catch (err) {
       console.warn("Failed to load funds:", err)
+      markSyncFailed("funds", err.message)
     } finally {
       setFundsLoading(false)
     }
@@ -225,8 +223,10 @@ export default function AdminDashboard() {
     try {
       const data = await fetchInvestments()
       setInvestments(data || [])
+      markSynced("investments")
     } catch (err) {
       console.warn("Failed to load investments:", err)
+      markSyncFailed("investments", err.message)
     } finally {
       setInvestmentsLoading(false)
     }
@@ -259,7 +259,7 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (isAuthenticated) {
-      fetchExpenses()
+      loadExpenses()
       loadCategories()
       loadFunds()
       loadInvestments()
@@ -402,7 +402,7 @@ export default function AdminDashboard() {
         })
 
         setStatusMessage({ type: "success", text: "Expense recorded & bill stored successfully in Supabase." })
-        await fetchExpenses()
+        await loadExpenses()
       } else {
         let mockBillUrl = null
         if (file) {
@@ -444,38 +444,24 @@ export default function AdminDashboard() {
     }
   }
 
-  // Handle Delete
+  // Handle Delete — soft delete: the row leaves the ledger but stays
+  // recoverable in the Activity tab and in the audit trail.
   const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this expense record?")) return
+    const confirmed = window.confirm(
+      "Move this expense to Recently Deleted?\n\nIt disappears from the ledger and the client view, but stays in the audit trail and can be restored from the Activity tab."
+    )
+    if (!confirmed) return
 
-    if (isSupabaseConfigured && supabase) {
-      try {
-        const { data, error } = await supabase
-          .from("expenses")
-          .delete()
-          .eq("id", id)
-          .select()
-
-        if (error) {
-          alert(`Error deleting record: ${error.message}`)
-          return
-        }
-
-        if (!data || data.length === 0) {
-          alert("Could not delete from database. Please ensure your Supabase SQL policy allows DELETE:\n\nCREATE POLICY \"Allow public delete expenses\" ON expenses FOR DELETE USING (true);")
-          return
-        }
-
-        setExpenses((prev) => prev.filter((item) => item.id !== id))
-        setStatusMessage({ type: "success", text: "Expense deleted successfully." })
-      } catch (err) {
-        console.error(err)
-        alert(`Failed to delete record: ${err.message}`)
-      }
-    } else {
-      const updated = expenses.filter((item) => item.id !== id)
-      setExpenses(updated)
-      localStorage.setItem("bjr_admin_expenses", JSON.stringify(updated))
+    try {
+      await deleteExpense(id)
+      setExpenses((prev) => prev.filter((item) => item.id !== id))
+      setStatusMessage({
+        type: "success",
+        text: "Expense removed from the ledger — audit trail kept. You can restore it from the Activity tab."
+      })
+    } catch (err) {
+      console.error(err)
+      setStatusMessage({ type: "error", text: `Failed to delete record: ${err.message}` })
     }
   }
 
@@ -839,9 +825,44 @@ export default function AdminDashboard() {
   const investmentEntriesTotal = investments.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0)
   const totalInvested = totalSpent + investmentEntriesTotal
 
+  // Direct investments, shaped for the Audit PDF (itemized separately from expenses)
+  const directInvestmentRows = React.useMemo(
+    () =>
+      investments
+        .map((inv) => ({
+          date: inv.date,
+          description: inv.note || "Startup Investment (Direct Funding)",
+          amount: Number(inv.amount) || 0
+        }))
+        .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0)),
+    [investments]
+  )
+
   const handleDownloadPDF = () => {
-    exportExpensesToPDF(filteredExpenses, "BJR Admin Audit", { totalFunds, balance, totalInvested })
+    exportExpensesToPDF(filteredExpenses, "BJR Admin Audit", {
+      totalFunds,
+      balance,
+      totalInvested,
+      investments: directInvestmentRows
+    })
   }
+
+  // Honest sync state: what failed to load, and whether we even have figures to show
+  const syncErrorList = Object.entries(syncErrors).filter(([, message]) => Boolean(message))
+  const hasSyncIssue = syncErrorList.length > 0
+  const fundsUnavailable = Boolean(syncErrors.funds) && funds.length === 0
+  const spentUnavailable = Boolean(syncErrors.expenses) && expenses.length === 0
+  const investedUnavailable =
+    (Boolean(syncErrors.investments) && investments.length === 0) || spentUnavailable
+
+  const retrySync = () => {
+    loadExpenses()
+    loadFunds()
+    loadInvestments()
+  }
+
+  // Never render a false ₹0: show a dash when a figure simply failed to load
+  const showFigure = (value, unavailable) => (unavailable ? "—" : formatINR(value))
 
   const categoryNames = categoriesList.map((c) => c.name)
 
@@ -898,6 +919,8 @@ export default function AdminDashboard() {
           categories={categoryNames}
           onToggleSidebar={() => setIsSidebarOpen(true)}
           onLogout={handleLogout}
+          lastUpdated={lastSyncedAt}
+          hasSyncIssue={hasSyncIssue}
         />
 
         <main className="flex-1 p-6 space-y-6 max-w-7xl w-full mx-auto">
@@ -919,6 +942,29 @@ export default function AdminDashboard() {
             </div>
           )}
 
+          {/* HONEST SYNC WARNING — a failed load must never look like ₹0 */}
+          {hasSyncIssue && (
+            <div className="p-3.5 rounded-md text-[13px] font-medium flex flex-col sm:flex-row sm:items-center gap-2 border bg-white text-amber-900 border-amber-300">
+              <div className="flex items-start gap-2 flex-1">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  Couldn&apos;t load live data for {syncErrorList.map(([key]) => key).join(", ")}.
+                  {lastSyncedAt
+                    ? " The figures shown are the last values that loaded successfully."
+                    : " No figures are shown until this succeeds."}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={retrySync}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-300 rounded-md hover:bg-amber-100 shrink-0 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Retry
+              </button>
+            </div>
+          )}
+
           {/* TOP BALANCE STRIP (visible on all tabs) */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
@@ -927,7 +973,7 @@ export default function AdminDashboard() {
                 <span>Funds Received</span>
               </div>
               <span className="block mt-1 text-xl font-bold font-mono tabular-nums text-navy">
-                {formatINR(totalFunds)}
+                {showFigure(totalFunds, fundsUnavailable)}
               </span>
             </div>
             <div className="rounded-lg border border-gray-200 bg-white px-4 py-3">
@@ -936,15 +982,15 @@ export default function AdminDashboard() {
                 <span>Total Spent</span>
               </div>
               <span className="block mt-1 text-xl font-bold font-mono tabular-nums text-navy">
-                {formatINR(totalSpent)}
+                {showFigure(totalSpent, spentUnavailable)}
               </span>
             </div>
-            <div className={`rounded-lg border px-4 py-3 ${isLowBalance ? "border-red-300 bg-red-50" : "border-emerald-300 bg-emerald-50"}`}>
+            <div className={`rounded-lg border px-4 py-3 ${fundsUnavailable || spentUnavailable ? "border-gray-300 bg-gray-50" : isLowBalance ? "border-red-300 bg-red-50" : "border-emerald-300 bg-emerald-50"}`}>
               <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500">
-                {isLowBalance ? "⚠ Low Balance" : "Available Balance"}
+                {fundsUnavailable || spentUnavailable ? "Balance unavailable" : isLowBalance ? "⚠ Low Balance" : "Available Balance"}
               </div>
-              <span className={`block mt-1 text-xl font-bold font-mono tabular-nums ${isLowBalance ? "text-red-600" : "text-emerald-700"}`}>
-                {formatINR(balance)}
+              <span className={`block mt-1 text-xl font-bold font-mono tabular-nums ${fundsUnavailable || spentUnavailable ? "text-gray-400" : isLowBalance ? "text-red-600" : "text-emerald-700"}`}>
+                {showFigure(balance, fundsUnavailable || spentUnavailable)}
               </span>
             </div>
             <div className="rounded-lg border border-[#D4AF37]/50 bg-gradient-to-br from-[#0B2149] to-[#123168] px-4 py-3 text-white">
@@ -953,13 +999,13 @@ export default function AdminDashboard() {
                 <span>Total Invested</span>
               </div>
               <span className="block mt-1 text-xl font-bold font-mono tabular-nums text-white">
-                {formatINR(totalInvested)}
+                {showFigure(totalInvested, investedUnavailable)}
               </span>
             </div>
           </div>
 
           {/* Top Admin Section Tabs */}
-          <div className="flex items-center gap-2 border-b border-gray-200 pb-3">
+          <div className="flex flex-wrap items-center gap-2 border-b border-gray-200 pb-3">
             <button
               type="button"
               onClick={() => setActiveTab("expenses")}
@@ -1008,9 +1054,29 @@ export default function AdminDashboard() {
               <Tag className="w-3.5 h-3.5" />
               <span>Manage Categories ({categoriesList.length})</span>
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("audit")}
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-md text-xs font-semibold uppercase tracking-wider transition-colors cursor-pointer ${
+                activeTab === "audit"
+                  ? "bg-navy text-white"
+                  : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
+              }`}
+            >
+              <History className="w-3.5 h-3.5" />
+              <span>Activity &amp; Audit Trail</span>
+            </button>
           </div>
 
-          {activeTab === "categories" ? (
+          {activeTab === "audit" ? (
+            <AuditTrail
+              onRestored={() => {
+                loadExpenses()
+                loadFunds()
+                loadInvestments()
+              }}
+            />
+          ) : activeTab === "categories" ? (
             /* 2. ADMIN DASHBOARD — CATEGORY MANAGEMENT SECTION */
             <div className="rounded-lg border border-gray-200 bg-white">
               <div className="border-b border-gray-200 px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">

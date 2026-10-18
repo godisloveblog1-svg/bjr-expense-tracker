@@ -2,13 +2,13 @@ import React, { useState, useEffect } from "react"
 import { useParams, Link } from "react-router-dom"
 import Sidebar from "@/components/Sidebar"
 import ExpenseTable from "@/components/ExpenseTable"
-import { supabase, isSupabaseConfigured } from "@/supabaseClient"
 import { fetchCategories } from "@/lib/categoriesService"
+import { fetchExpenses } from "@/lib/expensesService"
 import { fetchFunds } from "@/lib/fundsService"
 import { fetchInvestments } from "@/lib/investmentsService"
 import { exportExpensesToPDF } from "@/lib/pdfExport"
 import { formatINR, formatTransactionCount } from "@/lib/utils"
-import { AlertCircle, Download, Search, TrendingUp, Wallet, Rocket } from "lucide-react"
+import { AlertCircle, Download, Search, TrendingUp, Wallet, Rocket, RefreshCw } from "lucide-react"
 import { Select } from "@/components/ui/input"
 import logo from "@/assets/logo.png"
 
@@ -21,6 +21,9 @@ export default function ClientLedger() {
   const [investments, setInvestments] = useState([])
   const [categoriesList, setCategoriesList] = useState([])
   const [loading, setLoading] = useState(true)
+  // Per-source load state: a failed fetch must never be shown as ₹0
+  const [loadState, setLoadState] = useState({ expenses: "loading", funds: "loading", investments: "loading" })
+  const [lastSyncedAt, setLastSyncedAt] = useState(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [activeView, setActiveView] = useState("expenses") // "expenses" | "investments"
@@ -54,57 +57,53 @@ export default function ClientLedger() {
 
   const categoryNames = categoriesList.map((c) => c.name)
 
+  // Load everything the ledger needs — all three in parallel so the figures
+  // settle together (a sequential load briefly showed a wrong Total Invested).
+  // Each source reports its own state so a failure shows as "unavailable",
+  // never as a misleading ₹0.
+  const loadLedger = async () => {
+    setLoading(true)
+    setLoadState({ expenses: "loading", funds: "loading", investments: "loading" })
+
+    const [expensesResult, fundsResult, investmentsResult] = await Promise.allSettled([
+      fetchExpenses(),
+      fetchFunds(),
+      fetchInvestments()
+    ])
+
+    if (expensesResult.status === "fulfilled") {
+      setExpenses(expensesResult.value || [])
+      setLoadState((prev) => ({ ...prev, expenses: "ready" }))
+    } else {
+      console.error("Failed to load expenses:", expensesResult.reason)
+      setLoadState((prev) => ({ ...prev, expenses: "error" }))
+    }
+
+    if (fundsResult.status === "fulfilled") {
+      setFunds(fundsResult.value || [])
+      setLoadState((prev) => ({ ...prev, funds: "ready" }))
+    } else {
+      console.warn("Failed to load funds:", fundsResult.reason)
+      setLoadState((prev) => ({ ...prev, funds: "error" }))
+    }
+
+    if (investmentsResult.status === "fulfilled") {
+      setInvestments(investmentsResult.value || [])
+      setLoadState((prev) => ({ ...prev, investments: "ready" }))
+    } else {
+      console.warn("Failed to load investments:", investmentsResult.reason)
+      setLoadState((prev) => ({ ...prev, investments: "error" }))
+    }
+
+    // "Last updated" only moves forward on a fully successful refresh
+    if ([expensesResult, fundsResult, investmentsResult].every((r) => r.status === "fulfilled")) {
+      setLastSyncedAt(new Date())
+    }
+    setLoading(false)
+  }
+
   useEffect(() => {
-    async function fetchExpenses() {
-      setLoading(true)
-
-      if (isSupabaseConfigured && supabase) {
-        try {
-          const { data, error: supaError } = await supabase
-            .from("expenses")
-            .select("*")
-            .order("id", { ascending: false })
-
-          if (supaError) {
-            console.warn("Supabase query error:", supaError)
-            setExpenses([])
-          } else {
-            setExpenses(data || [])
-          }
-        } catch (err) {
-          console.error("Failed to connect to Supabase:", err)
-          setExpenses([])
-        }
-      } else {
-        setExpenses([])
-      }
-
-      setLoading(false)
-    }
-
-    fetchExpenses()
-
-    async function loadFunds() {
-      try {
-        const data = await fetchFunds()
-        setFunds(data || [])
-      } catch (err) {
-        console.warn("Failed to load funds:", err)
-        setFunds([])
-      }
-    }
-    loadFunds()
-
-    async function loadInvestments() {
-      try {
-        const data = await fetchInvestments()
-        setInvestments(data || [])
-      } catch (err) {
-        console.warn("Failed to load investments:", err)
-        setInvestments([])
-      }
-    }
-    loadInvestments()
+    loadLedger()
   }, [clientSlug])
 
   const filteredExpenses = expenses.filter((item) => {
@@ -135,13 +134,36 @@ export default function ClientLedger() {
   const balance = totalFunds - totalSpent
   const isLowBalance = balance <= 0
 
+  // Honest availability flags: show "—" rather than a false ₹0
+  const fundsUnavailable = loadState.funds === "error"
+  const expensesUnavailable = loadState.expenses === "error"
+  const investmentsUnavailable = loadState.investments === "error"
+  const hasSyncIssue = fundsUnavailable || expensesUnavailable || investmentsUnavailable
+  const balanceUnavailable = fundsUnavailable || expensesUnavailable
+  const lastUpdatedText = lastSyncedAt
+    ? `Last updated ${lastSyncedAt.toLocaleString("en-IN", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+        hour: "numeric",
+        minute: "2-digit"
+      })}`
+    : hasSyncIssue
+      ? "Live data unavailable"
+      : "Syncing…"
+
   // Investment math: every expense auto-counts as capital deployed into the project,
   // plus directly-uploaded non-expense investments
   const investmentEntriesTotal = investments.reduce((sum, inv) => sum + (Number(inv.amount) || 0), 0)
   const totalInvested = totalSpent + investmentEntriesTotal
 
   const handleDownloadPDF = () => {
-    exportExpensesToPDF(filteredExpenses, clientSlug || "BJR-Client", { totalFunds, balance, totalInvested })
+    exportExpensesToPDF(filteredExpenses, clientSlug || "BJR-Client", {
+      totalFunds,
+      balance,
+      totalInvested,
+      investments: investmentRows
+    })
   }
 
   // Total Investments view lists ONLY direct investments (uploads from admin).
@@ -228,7 +250,7 @@ export default function ClientLedger() {
           transactionCount={totalTransactions}
           activeView={activeView}
           onSelectView={setActiveView}
-          investmentCount={expenses.length + investments.length}
+          investmentCount={investments.length}
           activeFilter={selectedCategory}
           onSelectCategory={setSelectedCategory}
           onDownloadReport={handleDownloadPDF}
@@ -250,15 +272,48 @@ export default function ClientLedger() {
               <p className="text-sm text-gray-500 mt-1">
                 Every Rupee Accountable
               </p>
+              <p className="text-[11px] text-gray-400 mt-0.5">{lastUpdatedText}</p>
             </div>
 
             <div className="hidden sm:flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-xs uppercase tracking-wider font-semibold text-gray-600">
-                Live &amp; Verified
-              </span>
+              {hasSyncIssue ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-red-500" />
+                  <span className="text-xs uppercase tracking-wider font-semibold text-red-600">
+                    Sync issue
+                  </span>
+                </>
+              ) : (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-xs uppercase tracking-wider font-semibold text-gray-600">
+                    Live &amp; Verified
+                  </span>
+                </>
+              )}
             </div>
           </div>
+
+          {/* Sync warning: never let a failed load read as missing money */}
+          {hasSyncIssue && (
+            <div className="p-3.5 rounded-md text-[13px] font-medium flex flex-col sm:flex-row sm:items-center gap-2 border bg-white text-amber-900 border-amber-300">
+              <div className="flex items-start gap-2 flex-1">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  Some live figures could not be loaded, so they show as “—” instead of ₹0.
+                  {lastSyncedAt ? " Values shown are the last ones that loaded successfully." : ""}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={loadLedger}
+                className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-amber-900 bg-amber-50 border border-amber-300 rounded-md hover:bg-amber-100 shrink-0 cursor-pointer"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Retry
+              </button>
+            </div>
+          )}
 
           {/* THE BALANCE BOX */}
           <div className="relative overflow-hidden rounded-md border border-[#D4AF37]/60 border-l-4 border-l-[#D4AF37] bg-gradient-to-br from-[#0B2149] via-[#0E2856] to-[#123168] p-4.5 sm:p-6 lg:p-7 text-white shadow-md">
@@ -268,12 +323,16 @@ export default function ClientLedger() {
             {/* Top row */}
             <div className="flex items-center justify-between mb-2.5 sm:mb-4">
               <span className="text-[11px] font-semibold tracking-wider text-[#D4AF37] uppercase">
-                {isLowBalance ? "⚠ LOW / NO BALANCE" : "BALANCE LEFT"}
+                {balanceUnavailable ? "BALANCE UNAVAILABLE" : isLowBalance ? "⚠ LOW / NO BALANCE" : "BALANCE LEFT"}
               </span>
               <div className="flex items-center gap-2">
-                <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                {balanceUnavailable ? (
+                  <span className="w-2 h-2 rounded-full bg-red-400" />
+                ) : (
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                )}
                 <span className="text-[11px] font-medium uppercase tracking-wider text-gray-300">
-                  Live Sync
+                  {balanceUnavailable ? "Retry needed" : "Live Sync"}
                 </span>
               </div>
             </div>
@@ -282,10 +341,10 @@ export default function ClientLedger() {
             <div className="my-1 sm:my-2">
               <span
                 className={`text-3xl sm:text-5xl lg:text-6xl font-bold font-mono tracking-tight tabular-nums block ${
-                  isLowBalance ? "text-red-400" : "text-white"
+                  balanceUnavailable ? "text-gray-400" : isLowBalance ? "text-red-400" : "text-white"
                 }`}
               >
-                {formatINR(balance)}
+                {balanceUnavailable ? "—" : formatINR(balance)}
               </span>
             </div>
 
@@ -296,7 +355,7 @@ export default function ClientLedger() {
                   Total Funds
                 </span>
                 <span className="text-base sm:text-lg font-bold font-mono tabular-nums text-emerald-300 block mt-0.5">
-                  {formatINR(totalFunds)}
+                  {fundsUnavailable ? "—" : formatINR(totalFunds)}
                 </span>
               </div>
               <div className="rounded-md bg-white/5 border border-white/10 px-3 py-2">
@@ -304,7 +363,7 @@ export default function ClientLedger() {
                   Total Spent
                 </span>
                 <span className="text-base sm:text-lg font-bold font-mono tabular-nums text-white block mt-0.5">
-                  {formatINR(totalSpent)}
+                  {expensesUnavailable ? "—" : formatINR(totalSpent)}
                 </span>
               </div>
               <div className="rounded-md bg-white/5 border border-white/10 px-3 py-2">
@@ -312,7 +371,7 @@ export default function ClientLedger() {
                   Total Invested
                 </span>
                 <span className="text-base sm:text-lg font-bold font-mono tabular-nums text-[#D4AF37] block mt-0.5">
-                  {formatINR(totalInvested)}
+                  {investmentsUnavailable || expensesUnavailable ? "—" : formatINR(totalInvested)}
                 </span>
               </div>
             </div>
@@ -320,7 +379,9 @@ export default function ClientLedger() {
             {/* Bottom Row */}
             <div className="flex items-center justify-between border-t border-white/10 pt-3 sm:pt-4 mt-3 sm:mt-4">
               <span className="text-xs text-gray-300 font-normal">
-                {formatTransactionCount(totalTransactions)}
+                {expensesUnavailable
+                  ? "Transaction count unavailable"
+                  : formatTransactionCount(totalTransactions)}
               </span>
 
               {/* Bottom Right: Sleek minimal trend sparkline icon colored in Gold */}
@@ -411,6 +472,25 @@ export default function ClientLedger() {
               <div className="rounded-md border border-gray-200 bg-white p-12 text-center text-gray-500 text-xs">
                 Loading verified transactions...
               </div>
+            ) : (activeView === "expenses" && expensesUnavailable) ||
+              (activeView === "investments" && investmentsUnavailable) ? (
+              <div className="rounded-md border border-amber-200 bg-white p-12 text-center">
+                <AlertCircle className="w-5 h-5 text-amber-500 mx-auto mb-2" />
+                <p className="text-xs text-gray-700 font-medium">
+                  Couldn&apos;t load {activeView === "investments" ? "investments" : "expenses"}.
+                </p>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Nothing has been lost — the data simply didn&apos;t load. Retry to see the latest ledger.
+                </p>
+                <button
+                  type="button"
+                  onClick={loadLedger}
+                  className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-navy bg-white border border-gray-200 rounded-md hover:bg-gray-50 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Retry
+                </button>
+              </div>
             ) : activeView === "investments" ? (
               <ExpenseTable
                 expenses={filteredInvestmentRows}
@@ -437,10 +517,10 @@ export default function ClientLedger() {
         <div>
           <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 block flex items-center gap-1">
             <Wallet className="w-3 h-3" />
-            BALANCE LEFT
+            {balanceUnavailable ? "BALANCE UNAVAILABLE" : "BALANCE LEFT"}
           </span>
-          <span className={`text-lg font-bold font-mono tabular-nums ${isLowBalance ? "text-red-600" : "text-navy"}`}>
-            {formatINR(balance)}
+          <span className={`text-lg font-bold font-mono tabular-nums ${balanceUnavailable ? "text-gray-400" : isLowBalance ? "text-red-600" : "text-navy"}`}>
+            {balanceUnavailable ? "—" : formatINR(balance)}
           </span>
         </div>
 

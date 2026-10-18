@@ -24,7 +24,8 @@ async function getBase64ImageFromUrl(imageUrl) {
 }
 
 export async function exportExpensesToPDF(expenses, clientName = "Client Ledger", summary = {}) {
-  const { totalFunds = null, balance = null, totalInvested = null } = summary
+  const { totalFunds = null, balance = null, totalInvested = null, investments = null } = summary
+  const directInvestments = Array.isArray(investments) ? investments : []
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
@@ -193,6 +194,73 @@ export async function exportExpensesToPDF(expenses, clientName = "Client Ledger"
       fontSize: 9.5,
     }
   })
+
+  // Direct investments section: capital that is NOT an expense.
+  // Total Invested = Cumulative Spend (table above) + this section.
+  if (directInvestments.length > 0) {
+    const directTotal = directInvestments.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
+    const afterExpensesY = (doc.lastAutoTable?.finalY ?? summaryBoxY + boxH) + 10
+
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(10.5)
+    doc.setTextColor(...navyRGB)
+    doc.text("Direct Investments (non-expense capital)", 14, afterExpensesY)
+
+    doc.setFont("helvetica", "normal")
+    doc.setFontSize(8)
+    doc.setTextColor(90, 106, 128)
+    doc.text(
+      "Investments uploaded directly in the admin panel. Expenses are itemized in the table above.",
+      14,
+      afterExpensesY + 4
+    )
+
+    autoTable(doc, {
+      startY: afterExpensesY + 6,
+      head: [["#", "Date", "Investment", "Amount"]],
+      body: directInvestments.map((item, idx) => [
+        idx + 1,
+        item.date || "N/A",
+        item.description || item.note || "Direct investment",
+        formatINR(item.amount)
+      ]),
+      theme: "striped",
+      headStyles: {
+        fillColor: navyRGB,
+        textColor: [255, 255, 255],
+        fontStyle: "bold",
+        fontSize: 9
+      },
+      styles: {
+        fontSize: 8.5,
+        cellPadding: 3,
+        textColor: navyRGB
+      },
+      columnStyles: {
+        0: { cellWidth: 8, halign: "center" },
+        1: { cellWidth: 24 },
+        2: { cellWidth: "auto" },
+        3: { cellWidth: 32, halign: "right", fontStyle: "bold", textColor: navyRGB }
+      },
+      foot: [["", "", "Total Direct Investments", formatINR(directTotal)]],
+      footStyles: {
+        fillColor: lightGrayRGB,
+        textColor: goldRGB,
+        fontStyle: "bold",
+        fontSize: 9.5
+      }
+    })
+
+    const noteY = (doc.lastAutoTable?.finalY ?? afterExpensesY) + 6
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(8.5)
+    doc.setTextColor(...navyRGB)
+    doc.text(
+      `Total Invested = ${formatINR(totalAmount)} expenses + ${formatINR(directTotal)} direct investments = ${formatINR(totalAmount + directTotal)}`,
+      14,
+      noteY
+    )
+  }
 
   // Footer notes on every page
   const pageCount = doc.internal.getNumberOfPages()
