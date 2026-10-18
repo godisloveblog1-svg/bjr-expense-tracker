@@ -8,7 +8,7 @@ import { fetchFunds } from "@/lib/fundsService"
 import { fetchInvestments } from "@/lib/investmentsService"
 import { exportExpensesToPDF } from "@/lib/pdfExport"
 import { formatINR, formatTransactionCount } from "@/lib/utils"
-import { AlertCircle, Download, Search, TrendingUp, Wallet } from "lucide-react"
+import { AlertCircle, Download, Search, TrendingUp, Wallet, Rocket } from "lucide-react"
 import { Select } from "@/components/ui/input"
 import logo from "@/assets/logo.png"
 
@@ -23,6 +23,7 @@ export default function ClientLedger() {
   const [loading, setLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedCategory, setSelectedCategory] = useState("all")
+  const [activeView, setActiveView] = useState("expenses") // "expenses" | "investments"
 
   const isValidSlug = clientSlug === VALID_CLIENT_SLUG
 
@@ -143,6 +144,51 @@ export default function ClientLedger() {
     exportExpensesToPDF(filteredExpenses, clientSlug || "BJR-Client", { totalFunds, balance, totalInvested })
   }
 
+  // Itemized investments = every expense (auto-tracked) + every direct investment, newest first
+  const investmentRows = React.useMemo(() => {
+    const parseDate = (d) => {
+      const t = Date.parse(d || "")
+      return isNaN(t) ? 0 : t
+    }
+
+    const expRows = expenses.map((e) => ({
+      ...e,
+      id: `expense-${e.id}`,
+      isDirectInvestment: false
+    }))
+
+    const invRows = investments.map((inv) => ({
+      id: `investment-${inv.id}`,
+      date: inv.date,
+      description: inv.note || "Startup Investment (Direct Funding)",
+      category: "Investment",
+      amount: inv.amount,
+      notes: inv.note ? "Direct capital invested into the project" : "",
+      bill_url: inv.bill_url,
+      isDirectInvestment: true
+    }))
+
+    return [...expRows, ...invRows].sort((a, b) => parseDate(b.date) - parseDate(a.date))
+  }, [expenses, investments])
+
+  // Gold badge for direct investments, normal colors for expense categories
+  const investmentColorMap = React.useMemo(
+    () => ({ ...categoryColorMap, Investment: "#D4AF37", investment: "#D4AF37" }),
+    [categoryColorMap]
+  )
+
+  const filteredInvestmentRows = investmentRows.filter((item) => {
+    const search = searchTerm.toLowerCase().trim()
+    if (!search) return true
+    return (
+      (item.description || "").toLowerCase().includes(search) ||
+      (item.notes || "").toLowerCase().includes(search) ||
+      (item.date || "").toLowerCase().includes(search) ||
+      (item.category || "").toLowerCase().includes(search) ||
+      String(item.amount || "").includes(search)
+    )
+  })
+
   if (!isValidSlug) {
     return (
       <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-4">
@@ -184,6 +230,9 @@ export default function ClientLedger() {
           totalSpent={totalSpent}
           balance={balance}
           transactionCount={totalTransactions}
+          activeView={activeView}
+          onSelectView={setActiveView}
+          investmentCount={expenses.length + investments.length}
           activeFilter={selectedCategory}
           onSelectCategory={setSelectedCategory}
           onDownloadReport={handleDownloadPDF}
@@ -301,10 +350,12 @@ export default function ClientLedger() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3">
               <div>
                 <h2 className="text-[15px] font-semibold text-navy tracking-tight">
-                  Itemized Expenses
+                  {activeView === "investments" ? "Itemized Investments" : "Itemized Expenses"}
                 </h2>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Verified invoices with original receipt attachments
+                  {activeView === "investments"
+                    ? "Every expense auto-tracked, plus investments uploaded by admin — all with receipts"
+                    : "Verified invoices with original receipt attachments"}
                 </p>
               </div>
 
@@ -315,36 +366,65 @@ export default function ClientLedger() {
                   <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Search expenses..."
+                    placeholder={activeView === "investments" ? "Search investments..." : "Search expenses..."}
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full h-8 pl-8 pr-3 text-xs rounded-md border border-gray-200 bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:border-navy focus:ring-1 focus:ring-navy"
                   />
                 </div>
 
-                {/* Category select from categories table */}
-                <div className="w-full sm:w-40">
-                  <Select
-                    value={selectedCategory}
-                    onChange={(e) => setSelectedCategory(e.target.value)}
-                    className="h-8 text-xs rounded-md border-gray-200 bg-white text-gray-700 font-medium focus:border-navy focus:ring-1 focus:ring-navy w-full"
-                  >
-                    <option value="all">All Categories</option>
-                    {categoryNames.map((cat) => (
-                      <option key={cat} value={cat}>
-                        {cat}
-                      </option>
-                    ))}
-                  </Select>
-                </div>
+                {/* Category select from categories table (expenses view only) */}
+                {activeView === "expenses" && (
+                  <div className="w-full sm:w-40">
+                    <Select
+                      value={selectedCategory}
+                      onChange={(e) => setSelectedCategory(e.target.value)}
+                      className="h-8 text-xs rounded-md border-gray-200 bg-white text-gray-700 font-medium focus:border-navy focus:ring-1 focus:ring-navy w-full"
+                    >
+                      <option value="all">All Categories</option>
+                      {categoryNames.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                )}
               </div>
             </div>
+
+            {/* Investments breakdown chips */}
+            {activeView === "investments" && (
+              <div className="flex flex-wrap items-center gap-2 pb-3">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-navy/5 border border-navy/15 text-[11px] font-semibold text-navy">
+                  <TrendingUp className="w-3 h-3" />
+                  Auto from expenses: {formatINR(totalSpent)}
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#D4AF37]/10 border border-[#D4AF37]/40 text-[11px] font-semibold text-[#8a6d1f]">
+                  <Rocket className="w-3 h-3" />
+                  Direct uploads: {formatINR(investmentRows.filter((r) => r.isDirectInvestment).reduce((s, r) => s + (Number(r.amount) || 0), 0))}
+                </span>
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-semibold text-emerald-700">
+                  Total Invested: {formatINR(totalInvested)}
+                </span>
+              </div>
+            )}
 
             {/* Table Container: Dense, bordered */}
             {loading ? (
               <div className="rounded-md border border-gray-200 bg-white p-12 text-center text-gray-500 text-xs">
                 Loading verified transactions...
               </div>
+            ) : activeView === "investments" ? (
+              <ExpenseTable
+                expenses={filteredInvestmentRows}
+                isAdmin={false}
+                categoryColorMap={investmentColorMap}
+                amountLabel="Amount Invested"
+                totalLabel="TOTAL INVESTED"
+                emptyTitle="No investments recorded yet."
+                emptyHint="Every expense you log appears here automatically, along with investments added by the admin."
+              />
             ) : (
               <ExpenseTable
                 expenses={filteredExpenses}

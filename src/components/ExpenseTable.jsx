@@ -17,7 +17,11 @@ export default function ExpenseTable({
   onDelete,
   onEdit,
   isAdmin = false,
-  categoryColorMap = {}
+  categoryColorMap = {},
+  emptyTitle = "No expenses recorded yet. Check back soon.",
+  emptyHint,
+  amountLabel = "Amount Spent",
+  totalLabel = "TOTAL"
 }) {
   const [selectedReceipt, setSelectedReceipt] = useState(null)
 
@@ -32,12 +36,14 @@ export default function ExpenseTable({
           <Receipt className="w-5 h-5 text-gray-400" />
         </div>
         <h3 className="text-sm font-semibold text-gray-900">
-          No expenses recorded yet. Check back soon.
+          {emptyTitle}
         </h3>
         <p className="text-xs text-gray-500 mt-1 max-w-sm mx-auto">
-          {isAdmin 
-            ? "Use the form above to add an expense and attach receipts." 
-            : "No expenditure matching your active filters or ledger has been logged yet."}
+          {emptyHint
+            ? emptyHint
+            : isAdmin
+              ? "Use the form above to add an expense and attach receipts."
+              : "No expenditure matching your active filters or ledger has been logged yet."}
         </p>
       </div>
     )
@@ -151,7 +157,7 @@ export default function ExpenseTable({
               {/* Total row at the bottom: bg-gray-50 border-t border-gray-200 py-3 px-4 */}
               <tr className="bg-gray-50 border-t border-gray-200">
                 <td colSpan={3} className="py-3 px-4 text-xs uppercase tracking-wider text-gray-500 font-semibold border-r border-gray-100">
-                  TOTAL
+                  {totalLabel}
                 </td>
                 <td className="py-3 px-4 text-right text-lg font-bold text-navy tabular-nums font-mono border-r border-gray-100">
                   {formatINR(totalAmount)}
@@ -190,7 +196,7 @@ export default function ExpenseTable({
             <div className="flex items-end justify-between border-t border-gray-100 pt-2.5 w-full">
               <div>
                 <span className="block text-[11px] uppercase tracking-wider text-gray-500 font-medium">
-                  Amount Spent
+                  {amountLabel}
                 </span>
                 <span className="text-base font-semibold text-navy font-mono tabular-nums">
                   {formatINR(expense.amount)}

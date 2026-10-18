@@ -4,6 +4,7 @@ import {
   LayoutGrid,
   Download,
   ShieldCheck,
+  Rocket,
   X
 } from "lucide-react"
 import { formatINR, formatTransactionCount } from "@/lib/utils"
@@ -13,6 +14,9 @@ export default function Sidebar({
   totalSpent = 0,
   balance = null,
   transactionCount = 0,
+  activeView = "expenses",
+  onSelectView,
+  investmentCount = 0,
   activeFilter = "all",
   onSelectCategory,
   onDownloadReport,
@@ -76,28 +80,82 @@ export default function Sidebar({
             </div>
 
             <div className="space-y-1">
-              {/* All Expenses: Navy bg, white text, 4px solid gold bar on left edge, no rounded on left */}
-              <Link
-                to={clientSlug ? `/ledger/${clientSlug}` : "/ledger/x7k9m2p4q8v3"}
-                onClick={onClose}
-                className={`flex items-center justify-between py-2 px-4 text-[14px] font-medium transition-colors ${
-                  !isAdmin
-                    ? "bg-navy text-white border-l-4 border-[#D4AF37] rounded-r-md mr-2"
-                    : "text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-r-md mr-2"
-                }`}
-              >
-                <div className="flex items-center gap-2.5">
-                  <LayoutGrid className={`w-4 h-4 ${!isAdmin ? "text-gray-200" : "text-gray-400"}`} />
-                  <span>All Expenses</span>
-                </div>
-                <span
-                  className={`text-[12px] font-mono tabular-nums ${
-                    !isAdmin ? "text-gray-300" : "text-gray-400"
+              {!isAdmin && onSelectView ? (
+                <>
+                  {/* All Expenses (client view switch) */}
+                  <button
+                    onClick={() => {
+                      onSelectView("expenses")
+                      if (onClose) onClose()
+                    }}
+                    className={`w-full flex items-center justify-between py-2 px-4 text-[14px] font-medium transition-colors cursor-pointer ${
+                      activeView === "expenses"
+                        ? "bg-navy text-white border-l-4 border-[#D4AF37] rounded-r-md mr-2"
+                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-r-md mr-2"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <LayoutGrid className={`w-4 h-4 ${activeView === "expenses" ? "text-gray-200" : "text-gray-400"}`} />
+                      <span>All Expenses</span>
+                    </div>
+                    <span
+                      className={`text-[12px] font-mono tabular-nums ${
+                        activeView === "expenses" ? "text-gray-300" : "text-gray-400"
+                      }`}
+                    >
+                      {transactionCount}
+                    </span>
+                  </button>
+
+                  {/* Total Investments (client view switch) */}
+                  <button
+                    onClick={() => {
+                      onSelectView("investments")
+                      if (onClose) onClose()
+                    }}
+                    className={`w-full flex items-center justify-between py-2 px-4 text-[14px] font-medium transition-colors cursor-pointer ${
+                      activeView === "investments"
+                        ? "bg-navy text-white border-l-4 border-[#D4AF37] rounded-r-md mr-2"
+                        : "text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-r-md mr-2"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Rocket className={`w-4 h-4 ${activeView === "investments" ? "text-gray-200" : "text-gray-400"}`} />
+                      <span>Total Investments</span>
+                    </div>
+                    <span
+                      className={`text-[12px] font-mono tabular-nums ${
+                        activeView === "investments" ? "text-gray-300" : "text-gray-400"
+                      }`}
+                    >
+                      {investmentCount}
+                    </span>
+                  </button>
+                </>
+              ) : (
+                /* All Expenses link (admin sidebar) */
+                <Link
+                  to={clientSlug ? `/ledger/${clientSlug}` : "/ledger/x7k9m2p4q8v3"}
+                  onClick={onClose}
+                  className={`flex items-center justify-between py-2 px-4 text-[14px] font-medium transition-colors ${
+                    !isAdmin
+                      ? "bg-navy text-white border-l-4 border-[#D4AF37] rounded-r-md mr-2"
+                      : "text-gray-600 hover:text-gray-900 hover:bg-gray-50 rounded-r-md mr-2"
                   }`}
                 >
-                  {transactionCount}
-                </span>
-              </Link>
+                  <div className="flex items-center gap-2.5">
+                    <LayoutGrid className={`w-4 h-4 ${!isAdmin ? "text-gray-200" : "text-gray-400"}`} />
+                    <span>All Expenses</span>
+                  </div>
+                  <span
+                    className={`text-[12px] font-mono tabular-nums ${
+                      !isAdmin ? "text-gray-300" : "text-gray-400"
+                    }`}
+                  >
+                    {transactionCount}
+                  </span>
+                </Link>
+              )}
 
               {/* Admin Portal (Only visible in /admin) */}
               {isAdmin && (
