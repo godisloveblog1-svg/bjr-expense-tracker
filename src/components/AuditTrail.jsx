@@ -11,8 +11,10 @@ import {
   Cloud
 } from "lucide-react"
 import { fetchAuditLog, fetchDeletedRows, restoreRow, TABLE_LABELS } from "@/lib/auditService"
-import { isGoogleBackupConfigured } from "@/lib/googleBackupService"
+import { isGoogleBackupConfigured, backupAllToGoogle } from "@/lib/googleBackupService"
 import { formatINR } from "@/lib/utils"
+
+const GOOGLE_BACKUP_TS_KEY = "bjr_last_google_backup"
 
 const ACTION_META = {
   insert: { label: "Added", icon: PlusCircle, badge: "bg-emerald-50 text-emerald-700 border-emerald-200" },
@@ -62,7 +64,7 @@ function entrySummary(entry) {
   }
 }
 
-export default function AuditTrail({ onRestored }) {
+export default function AuditTrail({ onRestored, expenses = [], funds = [], investments = [] }) {
   const [entries, setEntries] = useState([])
   const [deletedRows, setDeletedRows] = useState([])
   const [available, setAvailable] = useState(true)
@@ -70,6 +72,17 @@ export default function AuditTrail({ onRestored }) {
   const [error, setError] = useState(null)
   const [restoringId, setRestoringId] = useState(null)
   const [notice, setNotice] = useState(null)
+
+  // Google Sheets full-backup state
+  const [backupState, setBackupState] = useState("idle") // idle | working | done | unverified | error
+  const [backupMessage, setBackupMessage] = useState("")
+  const [lastBackupAt, setLastBackupAt] = useState(() => {
+    try {
+      return localStorage.getItem(GOOGLE_BACKUP_TS_KEY) || null
+    } catch {
+      return null
+    }
+ })
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -106,6 +119,41 @@ export default function AuditTrail({ onRestored }) {
       setNotice({ type: "error", text: err.message || "Could not restore the record." })
     } finally {
       setRestoringId(null)
+    }
+  }
+
+  const handleFullBackup = async () => {
+    if (backupState === "working") return
+    setBackupState("working")
+    setBackupMessage("")
+    try {
+      const result = await backupAllToGoogle(expenses, funds, investments)
+      const when = new Date().toISOString()
+      try {
+        localStorage.setItem(GOOGLE_BACKUP_TS_KEY, when)
+      } catch {
+        /* private mode — the timestamp label just won't persist */
+      }
+      setLastBackupAt(when)
+
+      if (result.ok && result.unverified) {
+        setBackupState("unverified")
+        setBackupMessage(
+          "Backup request sent, but the browser could not confirm delivery. Open the Google Sheet and check the Expenses / Funds Received / Investments tabs are filled."
+        )
+      } else if (result.ok) {
+        const c = result.counts || {}
+        setBackupState("done")
+        setBackupMessage(
+          `Your Google Sheet now mirrors the app: ${c.expense ?? expenses.length} expenses · ${c.fund ?? funds.length} funds · ${c.investment ?? investments.length} investments.`
+        )
+      } else {
+        setBackupState("error")
+        setBackupMessage(result.error || "The backup did not complete.")
+      }
+    } catch (err) {
+      setBackupState("error")
+      setBackupMessage(err.message || "Backup failed.")
     }
   }
 
@@ -222,6 +270,59 @@ export default function AuditTrail({ onRestored }) {
                 </>
               )}
             </span>
+          </div>
+
+          {/* Full off-site backup — pushes a complete snapshot of the ledger to Sheets */}
+          <div className="p-3 rounded-md border border-gray-200 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="text-[13px] font-semibold text-gray-900">
+                Back up all data to Google Sheets
+              </div>
+              <div className="text-[12px] text-gray-500 mt-0.5">
+                Sends every expense, fund and investment and rewrites the sheet tabs, so the sheet
+                is an exact mirror of the ledger. Last full backup:{" "}
+                <span className="font-medium text-gray-700">
+                  {lastBackupAt
+                    ? new Date(lastBackupAt).toLocaleString("en-IN", {
+                        day: "2-digit",
+                        month: "short",
+                        hour: "numeric",
+                        minute: "2-digit"
+                      })
+                    : "never"}
+                </span>
+              </div>
+              {backupState !== "idle" && backupState !== "working" && (
+                <div
+                  className={`text-[12px] mt-1 ${
+                    backupState === "error"
+                      ? "text-red-600"
+                      : backupState === "unverified"
+                        ? "text-amber-600"
+                        : "text-emerald-700"
+                  }`}
+                >
+                  {backupMessage}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={handleFullBackup}
+              disabled={backupState === "working" || !isGoogleBackupConfigured}
+              className="shrink-0 inline-flex items-center justify-center gap-2 rounded-md bg-navy px-4 py-2 text-[12px] font-semibold text-white hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-opacity"
+              title={
+                isGoogleBackupConfigured
+                  ? "Send the full ledger to Google Sheets"
+                  : "Not available until VITE_GOOGLE_BACKUP_WEBHOOK_URL is configured"
+              }
+            >
+              <Cloud className="w-3.5 h-3.5" />
+              {backupState === "working"
+                ? "Backing up…"
+                : isGoogleBackupConfigured
+                  ? "Back up all data now"
+                  : "Backup not configured"}
+            </button>
           </div>
 
           {/* Recently deleted */}

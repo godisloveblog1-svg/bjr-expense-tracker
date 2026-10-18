@@ -70,6 +70,36 @@ Then create the admin login: **Authentication → Users → Add user** (email + 
 
 Every script is idempotent — re-running them is safe.
 
+## Optional: off-site Google Sheets backup
+
+Separate from the Supabase audit trail, the ledger can be mirrored to a Google Sheet you own:
+
+1. Follow the steps at the top of `google-backup-script.js` (create a Sheet, paste the script,
+   deploy as a Web app with *Execute as: Me*, *Who has access: Anyone*).
+2. Set `VITE_GOOGLE_BACKUP_WEBHOOK_URL` in Vercel (and redeploy) and in your local `.env`.
+3. Admin → **Activity & Audit Trail** → **Back up all data now** — this fills the
+   *Expenses*, *Funds Received* and *Investments* tabs with the full current ledger.
+4. From then on, every add/edit is appended to the *Backup Log* tab automatically, and
+   press **Back up all data now** whenever you want a fresh exact snapshot.
+
+If the Apps Script is ever updated, redeploy it: *Deploy → Manage deployments → Edit →
+New version* — otherwise the old code keeps running.
+
+## Optional: off-site Google Sheets backup
+
+Separate from the Supabase audit trail, the ledger can be mirrored to a Google Sheet you own:
+
+1. Follow the steps at the top of `google-backup-script.js` (create a Sheet, paste the script,
+   deploy as a Web app with *Execute as: Me*, *Who has access: Anyone*).
+2. Set `VITE_GOOGLE_BACKUP_WEBHOOK_URL` in Vercel (and redeploy) and in your local `.env`.
+3. Admin → **Activity & Audit Trail** → **Back up all data now** — this fills the
+   *Expenses*, *Funds Received* and *Investments* tabs with the full current ledger.
+4. From then on, every add/edit is appended to the *Backup Log* tab automatically; press
+   **Back up all data now** whenever you want a fresh exact snapshot (e.g. after a delete).
+
+If the Apps Script is ever updated, redeploy it: *Deploy → Manage deployments → Edit →
+New version* — otherwise the old code keeps running.
+
 ## Deployment
 
 - **Vercel** (primary): connected to this repo, deploys `main` automatically. `vercel.json` rewrites
@@ -116,4 +146,6 @@ google-backup-script.js        optional Apps Script for Google Sheets backup
 
 - `backups/` is intentionally untracked (contains client financial data).
 - The Supabase tables + audit trail are the source of truth; the Google Sheets copy is a convenience.
-- The Google webhook posts with `mode: "no-cors"`, so it can only confirm "sent", not "delivered".
+- Single-event backup posts are fire-and-forget (`no-cors` — "sent" only); the
+  **Back up all data now** button confirms delivery where the browser allows it, otherwise it
+  tells you to verify in the sheet.

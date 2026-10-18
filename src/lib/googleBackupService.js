@@ -53,23 +53,54 @@ export async function backupTransactionToGoogle(record) {
 }
 
 /**
- * Sync all existing transactions to Google Drive in bulk.
+ * Copy the ENTIRE current ledger (expenses + funds + investments) to the
+ * Google Sheet. Used by the "Back up all data now" button in the admin
+ * Activity & Audit Trail tab. The Apps Script clears and rewrites its three
+ * snapshot tabs, so the sheet mirrors the app exactly.
  */
-export async function syncAllToGoogle(expensesList) {
+export async function backupAllToGoogle(expenses = [], funds = [], investments = []) {
   if (!isGoogleBackupConfigured) {
     throw new Error(
-      "Google Backup Webhook URL is not configured. Add VITE_GOOGLE_BACKUP_WEBHOOK_URL to your environment."
+      "Google backup is not configured. Add VITE_GOOGLE_BACKUP_WEBHOOK_URL and redeploy."
     )
   }
 
-  await fetch(GOOGLE_WEBHOOK_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain;charset=utf-8"
-    },
-    body: JSON.stringify({ records: expensesList }),
-    mode: "no-cors"
-  })
+  // Tag each row so the script routes it to the right tab.
+  const records = [
+    ...expenses.map((row) => ({ ...row, kind: "expense" })),
+    ...funds.map((row) => ({ ...row, kind: "fund" })),
+    ...investments.map((row) => ({ ...row, kind: "investment" }))
+  ]
 
-  return true
+  const options = {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify({ full: true, records })
+  }
+
+  try {
+    // Apps Script web apps send CORS headers on their JSON responses, so with
+    // mode "cors" we can actually READ the confirmation instead of guessing.
+    const response = await fetch(GOOGLE_WEBHOOK_URL, { ...options, mode: "cors" })
+    let result = null
+    try {
+      result = await response.json()
+    } catch {
+      result = null
+    }
+
+    if (!response.ok) {
+      return { ok: false, error: `Google responded with status ${response.status}` }
+    }
+    if (result && result.status && result.status !== "success") {
+      return { ok: false, error: result.message || "Google reported an error" }
+    }
+
+    return { ok: true, counts: result?.counts || null }
+  } catch {
+    // CORS could not be completed (opaque). Send fire-and-forget anyway and be
+    // honest with the user that delivery must be verified in the sheet itself.
+    await fetch(GOOGLE_WEBHOOK_URL, { ...options, mode: "no-cors" }).catch(() => {})
+    return { ok: true, unverified: true }
+  }
 }

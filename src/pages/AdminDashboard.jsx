@@ -1076,6 +1076,9 @@ export default function AdminDashboard() {
                 loadFunds()
                 loadInvestments()
               }}
+              expenses={expenses}
+              funds={funds}
+              investments={investments}
             />
           ) : activeTab === "categories" ? (
             /* 2. ADMIN DASHBOARD — CATEGORY MANAGEMENT SECTION */
