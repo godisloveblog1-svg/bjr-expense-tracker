@@ -144,32 +144,28 @@ export default function ClientLedger() {
     exportExpensesToPDF(filteredExpenses, clientSlug || "BJR-Client", { totalFunds, balance, totalInvested })
   }
 
-  // Itemized investments = every expense (auto-tracked) + every direct investment, newest first
+  // Total Investments view lists ONLY direct investments (uploads from admin).
+  // Expenses are itemized separately in All Expenses, but still count toward the Total Invested figure.
   const investmentRows = React.useMemo(() => {
     const parseDate = (d) => {
       const t = Date.parse(d || "")
       return isNaN(t) ? 0 : t
     }
 
-    const expRows = expenses.map((e) => ({
-      ...e,
-      id: `expense-${e.id}`,
-      isDirectInvestment: false
-    }))
+    return investments
+      .map((inv) => ({
+        id: `investment-${inv.id}`,
+        date: inv.date,
+        description: inv.note || "Startup Investment (Direct Funding)",
+        category: "Investment",
+        amount: inv.amount,
+        notes: inv.note ? "Direct capital invested into the project" : "",
+        bill_url: inv.bill_url
+      }))
+      .sort((a, b) => parseDate(b.date) - parseDate(a.date))
+  }, [investments])
 
-    const invRows = investments.map((inv) => ({
-      id: `investment-${inv.id}`,
-      date: inv.date,
-      description: inv.note || "Startup Investment (Direct Funding)",
-      category: "Investment",
-      amount: inv.amount,
-      notes: inv.note ? "Direct capital invested into the project" : "",
-      bill_url: inv.bill_url,
-      isDirectInvestment: true
-    }))
-
-    return [...expRows, ...invRows].sort((a, b) => parseDate(b.date) - parseDate(a.date))
-  }, [expenses, investments])
+  const directInvestmentsTotal = investmentRows.reduce((sum, item) => sum + (Number(item.amount) || 0), 0)
 
   // Gold badge for direct investments, normal colors for expense categories
   const investmentColorMap = React.useMemo(
@@ -354,7 +350,7 @@ export default function ClientLedger() {
                 </h2>
                 <p className="text-xs text-gray-500 mt-0.5">
                   {activeView === "investments"
-                    ? "Every expense auto-tracked, plus investments uploaded by admin — all with receipts"
+                    ? "Investments made outside of expenses — itemized spend lives in All Expenses and still counts toward Total Invested"
                     : "Verified invoices with original receipt attachments"}
                 </p>
               </div>
@@ -396,13 +392,13 @@ export default function ClientLedger() {
             {/* Investments breakdown chips */}
             {activeView === "investments" && (
               <div className="flex flex-wrap items-center gap-2 pb-3">
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-navy/5 border border-navy/15 text-[11px] font-semibold text-navy">
-                  <TrendingUp className="w-3 h-3" />
-                  Auto from expenses: {formatINR(totalSpent)}
-                </span>
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#D4AF37]/10 border border-[#D4AF37]/40 text-[11px] font-semibold text-[#8a6d1f]">
                   <Rocket className="w-3 h-3" />
-                  Direct uploads: {formatINR(investmentRows.filter((r) => r.isDirectInvestment).reduce((s, r) => s + (Number(r.amount) || 0), 0))}
+                  Direct investments (listed below): {formatINR(directInvestmentsTotal)}
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-navy/5 border border-navy/15 text-[11px] font-semibold text-navy">
+                  <TrendingUp className="w-3 h-3" />
+                  Auto from expenses (see All Expenses): {formatINR(totalSpent)}
                 </span>
                 <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-[11px] font-semibold text-emerald-700">
                   Total Invested: {formatINR(totalInvested)}
@@ -421,9 +417,9 @@ export default function ClientLedger() {
                 isAdmin={false}
                 categoryColorMap={investmentColorMap}
                 amountLabel="Amount Invested"
-                totalLabel="TOTAL INVESTED"
-                emptyTitle="No investments recorded yet."
-                emptyHint="Every expense you log appears here automatically, along with investments added by the admin."
+                totalLabel="TOTAL INVESTED (DIRECT)"
+                emptyTitle="No direct investments recorded yet."
+                emptyHint="Investments made outside of expenses will appear here. Expenses are itemized in All Expenses and still count toward Total Invested."
               />
             ) : (
               <ExpenseTable
