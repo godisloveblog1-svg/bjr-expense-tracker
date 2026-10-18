@@ -2,7 +2,6 @@ import React from "react"
 import { Link, useLocation } from "react-router-dom"
 import {
   LayoutGrid,
-  FolderOpen,
   Download,
   ShieldCheck,
   X
@@ -118,57 +117,6 @@ export default function Sidebar({
               )}
             </div>
           </div>
-
-          {/* Categories Filter Section */}
-          {categories.length > 0 && onSelectCategory && (
-            <div>
-              <div className="px-4 mb-2 flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <FolderOpen className="w-3.5 h-3.5 text-gray-400" />
-                  <span className="text-xs uppercase tracking-wider text-gray-400 font-semibold">
-                    CATEGORIES
-                  </span>
-                </div>
-                {activeFilter !== "all" && (
-                  <button
-                    onClick={() => {
-                      onSelectCategory("all")
-                      if (onClose) onClose()
-                    }}
-                    className="text-[11px] text-gray-500 hover:text-navy cursor-pointer font-medium"
-                  >
-                    Reset
-                  </button>
-                )}
-              </div>
-
-              <div className="space-y-1 px-3">
-                {categories.map((cat) => {
-                  const isSelected = activeFilter.toLowerCase() === cat.toLowerCase()
-                  return (
-                    <button
-                      key={cat}
-                      onClick={() => {
-                        onSelectCategory(isSelected ? "all" : cat)
-                        if (onClose) onClose()
-                      }}
-                      className={`w-full flex items-center justify-between py-1.5 px-2.5 rounded-md text-sm transition-colors cursor-pointer text-left ${
-                        isSelected
-                          ? "bg-gray-100 text-navy font-semibold"
-                          : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2">
-                        {/* Tiny gold dot */}
-                        <span className={`w-1 h-1 rounded-full ${isSelected ? "bg-[#D4AF37]" : "bg-[#D4AF37]"}`} />
-                        <span>{cat}</span>
-                      </div>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
