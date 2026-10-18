@@ -6,9 +6,12 @@ import {
   Trash2,
   RotateCcw,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  CloudOff,
+  Cloud
 } from "lucide-react"
 import { fetchAuditLog, fetchDeletedRows, restoreRow, TABLE_LABELS } from "@/lib/auditService"
+import { isGoogleBackupConfigured } from "@/lib/googleBackupService"
 import { formatINR } from "@/lib/utils"
 
 const ACTION_META = {
@@ -193,6 +196,32 @@ export default function AuditTrail({ onRestored }) {
                 {deletedRows.length}
               </span>
             </div>
+          </div>
+
+          {/* Off-site backup status — stated honestly, including when it is off */}
+          <div className="flex items-start gap-2 p-3 rounded-md border border-gray-200 bg-gray-50/60">
+            {isGoogleBackupConfigured ? (
+              <Cloud className="w-3.5 h-3.5 text-emerald-600 shrink-0 mt-0.5" />
+            ) : (
+              <CloudOff className="w-3.5 h-3.5 text-gray-400 shrink-0 mt-0.5" />
+            )}
+            <span className="text-[12px] text-gray-600">
+              {isGoogleBackupConfigured ? (
+                <>
+                  <strong>Google Sheets backup: active.</strong> New transactions are also copied
+                  off-site. Delivery is fire-and-forget (browser no-cors), so this is a convenience
+                  copy — the audit trail above remains the source of truth.
+                </>
+              ) : (
+                <>
+                  <strong>Google Sheets backup: not set up.</strong> Every change is still recorded
+                  in the audit trail above (Supabase). To also copy transactions to a Google Sheet,
+                  set <code className="font-mono text-[11px] bg-white px-1 rounded border border-gray-200">VITE_GOOGLE_BACKUP_WEBHOOK_URL</code>{" "}
+                  — the 2-minute setup steps are at the top of{" "}
+                  <code className="font-mono text-[11px] bg-white px-1 rounded border border-gray-200">google-backup-script.js</code>.
+                </>
+              )}
+            </span>
           </div>
 
           {/* Recently deleted */}

@@ -54,7 +54,7 @@ export async function exportExpensesToPDF(expenses, clientName = "Client Ledger"
       doc.addImage(logoBase64, "PNG", 14, 12, logoWidth, logoHeight)
       hasImageLogo = true
     }
-  } catch (e) {
+  } catch {
     hasImageLogo = false
   }
 

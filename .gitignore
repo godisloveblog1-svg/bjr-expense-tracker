@@ -15,6 +15,9 @@ dist-ssr
 .env.local
 .env.*.local
 
+# Local backups — contain client financial data, never commit
+backups/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -30,9 +30,13 @@ jobs:
       - name: Build
         run: npm run build
         env:
+          # Pages serves the app from /<repo-name>/ — without this the asset
+          # URLs point at /assets/... and the page renders blank.
+          VITE_BASE_PATH: /${{ github.event.repository.name }}/
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_ADMIN_PASSWORD: ${{ secrets.VITE_ADMIN_PASSWORD }}
+      - name: Add SPA fallback for deep links (e.g. /ledger/<client-slug>)
+        run: cp dist/index.html dist/404.html
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

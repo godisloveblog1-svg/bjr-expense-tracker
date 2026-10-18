@@ -9,11 +9,13 @@ import {
   ArrowRight,
   CheckCircle2,
   Eye,
-  Layers,
   Sparkles
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import logo from "@/assets/logo.png"
+
+// Computed once at module load: calling new Date() during render is impure
+const CURRENT_YEAR = new Date().getFullYear()
 
 export default function LandingPage() {
   const steps = [
@@ -223,7 +225,7 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-gray-text">
           <div className="flex items-center gap-2">
             <img src={logo} alt="BJR Group" className="h-6 w-auto object-contain" />
-            <span>© {new Date().getFullYear()} BJR Group. All rights reserved.</span>
+            <span>© {CURRENT_YEAR} BJR Group. All rights reserved.</span>
           </div>
           <div className="flex items-center gap-6 font-semibold text-navy">
             <Link to="/ledger/x7k9m2p4q8v3" className="hover:text-gold transition-colors">

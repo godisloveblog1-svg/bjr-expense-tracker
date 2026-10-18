@@ -8,6 +8,10 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // https://vite.dev/config/
 export default defineConfig({
+  // GitHub Pages serves this app from /<repo-name>/, while Vercel serves it from
+  // the root. The Pages workflow sets VITE_BASE_PATH, so a single build config
+  // works on both hosts (Vercel falls back to "/").
+  base: process.env.VITE_BASE_PATH || "/",
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

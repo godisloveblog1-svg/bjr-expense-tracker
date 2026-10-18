@@ -264,6 +264,8 @@ export default function AdminDashboard() {
       loadFunds()
       loadInvestments()
     }
+    // Runs once per sign-in; the loaders are recreated on every render.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated])
 
   const handleLogout = async () => {
@@ -288,6 +290,8 @@ export default function AdminDashboard() {
     } else {
       setCategory("")
     }
+    // Only re-validate when the category list itself changes.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps
   }, [categoriesList])
 
   // Create Category Handler
@@ -353,7 +357,7 @@ export default function AdminDashboard() {
           const fileName = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`
           const filePath = `${fileName}`
 
-          const { data: uploadData, error: uploadError } = await supabase.storage
+          const { error: uploadError } = await supabase.storage
             .from("bills")
             .upload(filePath, file)
 
@@ -901,10 +905,7 @@ export default function AdminDashboard() {
         totalSpent={totalSpent}
         balance={balance}
         transactionCount={filteredExpenses.length}
-        activeFilter={selectedCategory}
-        onSelectCategory={setSelectedCategory}
         onDownloadReport={handleDownloadPDF}
-        categories={categoryNames}
         isOpen={isSidebarOpen}
         onClose={() => setIsSidebarOpen(false)}
       />

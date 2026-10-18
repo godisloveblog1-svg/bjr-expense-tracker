@@ -251,10 +251,7 @@ export default function ClientLedger() {
           activeView={activeView}
           onSelectView={setActiveView}
           investmentCount={investments.length}
-          activeFilter={selectedCategory}
-          onSelectCategory={setSelectedCategory}
           onDownloadReport={handleDownloadPDF}
-          categories={categoryNames}
           clientSlug={clientSlug}
           isOpen={false}
           onClose={() => {}}
