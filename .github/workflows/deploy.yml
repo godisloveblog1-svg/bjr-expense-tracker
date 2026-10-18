@@ -35,6 +35,9 @@ jobs:
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          # Optional mirror: set this Actions secret to enable Google Sheets
+          # backup on the Pages deployment (same value as on Vercel).
+          VITE_GOOGLE_BACKUP_WEBHOOK_URL: ${{ secrets.VITE_GOOGLE_BACKUP_WEBHOOK_URL }}
       - name: Add SPA fallback for deep links (e.g. /ledger/<client-slug>)
         run: cp dist/index.html dist/404.html
       - name: Upload artifact
